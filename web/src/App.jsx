@@ -52,6 +52,7 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [audioSrc, setAudioSrc] = useState("");
+  const [showAllResults, setShowAllResults] = useState(false);
 
   async function search() {
     if (!query.trim()) return;
@@ -170,7 +171,7 @@ export default function App() {
           </div>
 
           <div className="list">
-            {results.map((track, i) => (
+            {(showAllResults ? results : results.slice(0, 2)).map((track, i) => (
               <TrackRow
                 key={`${track.trackKey}-${i}`}
                 track={track}
@@ -180,6 +181,15 @@ export default function App() {
               />
             ))}
           </div>
+          {results.length > 2 && (
+            <button
+              className="button show-more-btn"
+              onClick={() => setShowAllResults(!showAllResults)}
+              style={{ marginTop: "1rem" }}
+            >
+              {showAllResults ? "Show less" : "Show more"}
+            </button>
+          )}
         </section>
 
         <section className="panel column">
