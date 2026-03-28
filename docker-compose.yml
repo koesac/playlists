@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: ai-playlist-api
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      PORT: ${PORT}
+      LASTFM_API_KEY: ${LASTFM_API_KEY}
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT}
+      DB_PATH: ${DB_PATH}
+    volumes:
+      - app_data:/data
+    depends_on:
+      - redis
+    expose:
+      - "3001"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: ai-playlist-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-playlist-redis
+    command: redis-server --save "" --appendonly no
+    restart: unless-stopped
+
+volumes:
+  app_data:
