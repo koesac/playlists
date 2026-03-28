@@ -145,7 +145,7 @@ export default function App() {
             onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
             placeholder="Draft title"
           />
-          <button className="button" onClick={saveDraft}>Save draft</button>
+          <button className="button" onClick={saveDraft}>💾 Save draft</button>
         </div>
       </header>
 
@@ -159,7 +159,7 @@ export default function App() {
           onKeyDown={(e) => e.key === "Enter" && search()}
         />
         <button className="button" onClick={search} disabled={loading}>
-          {loading ? "Loading..." : "Search"}
+          🔍 {loading ? "Loading..." : "Search"}
         </button>
       </section>
 
@@ -222,9 +222,9 @@ export default function App() {
                     ))}
                   </div>
                   <div className="action-row">
-                    <button className="button" onClick={() => addToDraft(selected.track)}>Add to draft</button>
+                    <button className="button" onClick={() => addToDraft(selected.track)}>➕ Add to draft</button>
                     <button className="button secondary" onClick={() => setAudioSrc(selected.track.previewUrl || "")}>
-                      Preview
+                      👁 Preview
                     </button>
                   </div>
                 </div>
@@ -251,8 +251,8 @@ export default function App() {
                           </div>
                         </div>
                         <div className="mini-actions">
-                          <button className="button secondary" onClick={() => loadDetail(track)}>Open</button>
-                          <button className="button" onClick={() => addToDraft(track)}>Add</button>
+                          <button className="button secondary" onClick={() => loadDetail(track)}>↗ Open</button>
+                          <button className="button" onClick={() => addToDraft(track)}>+ Add</button>
                         </div>
                       </div>
                     ))}
@@ -269,8 +269,8 @@ export default function App() {
                           <div className="muted">{track.album || "Unknown release"}</div>
                         </div>
                         <div className="mini-actions">
-                          <button className="button secondary" onClick={() => loadDetail(track)}>Open</button>
-                          <button className="button" onClick={() => addToDraft(track)}>Add</button>
+                          <button className="button secondary" onClick={() => loadDetail(track)}>↗ Open</button>
+                          <button className="button" onClick={() => addToDraft(track)}>+ Add</button>
                         </div>
                       </div>
                     ))}
@@ -287,8 +287,8 @@ export default function App() {
                           <div className="muted">{fmtMs(track.durationMs)}</div>
                         </div>
                         <div className="mini-actions">
-                          <button className="button secondary" onClick={() => loadDetail(track)}>Open</button>
-                          <button className="button" onClick={() => addToDraft(track)}>Add</button>
+                          <button className="button secondary" onClick={() => loadDetail(track)}>↗ Open</button>
+                          <button className="button" onClick={() => addToDraft(track)}>+ Add</button>
                         </div>
                       </div>
                     ))}
@@ -322,11 +322,11 @@ export default function App() {
                 <div className="mini-actions">
                   {track.previewUrl && (
                     <button className="button secondary" onClick={() => setAudioSrc(track.previewUrl)}>
-                      Preview
+                      ▶ Preview
                     </button>
                   )}
                   <button className="button danger" onClick={() => removeFromDraft(track)}>
-                    Remove
+                    🗑 Remove
                   </button>
                 </div>
               </div>
@@ -372,10 +372,10 @@ function TrackRow({ track, onOpen, onAdd, onPreview }) {
 
       <div className="mini-actions">
         {track.previewUrl && (
-          <button className="button secondary" onClick={onPreview}>Preview</button>
+          <button className="button secondary" onClick={onPreview}>▶ Preview</button>
         )}
-        <button className="button secondary" onClick={onOpen}>Open</button>
-        <button className="button" onClick={onAdd}>Add</button>
+        <button className="button secondary" onClick={onOpen}>↗ Open</button>
+        <button className="button" onClick={onAdd}>+ Add</button>
       </div>
     </div>
   );
