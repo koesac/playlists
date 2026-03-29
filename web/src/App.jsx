@@ -474,9 +474,12 @@ function GraphNode({ data, selected }) {
 
 function GhostNode({ data }) {
   return (
-    <div className={`ghost-card kind-${data.kind} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""}`} style={{ "--accent": entityColor(data.kind) }}>
+    <div className={`ghost-card kind-${data.kind} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""} ${data.isPlaying ? "is-playing" : ""}`} style={{ "--accent": entityColor(data.kind) }}>
       <div className="ghost-kind">{data.relation}</div>
       <div className="ghost-label">{data.label}</div>
+      {data.isPlaying && data.kind === "track" && (
+        <div className="ghost-tap-hint">Tap again to add ›</div>
+      )}
     </div>
   );
 }
@@ -598,6 +601,10 @@ function FlowApp() {
   const graphPanelRef = useRef(null);
   const searchBoxRef = useRef(null);
   const searchInputRef = useRef(null);
+  
+const isTouchDeviceRef = useRef(
+  typeof window !== "undefined" && window.matchMedia("(hover: none)").matches
+);
   const { screenToFlowPosition, setCenter, getViewport, setViewport } = useReactFlow();
 
   const playlistIds = useMemo(() => playlist.map((item) => item.id), [playlist]);
@@ -674,8 +681,7 @@ function FlowApp() {
       })
       .slice(0, 6);
   }, [searchResults, blockedRecommendationIds, blockedRecommendationKeys]);
-
-  useEffect(() => {
+useEffect(() => {
   const el = audioRef.current;
   if (!el) return;
 
@@ -1654,12 +1660,60 @@ useEffect(() => {
                 label: node.data?.label || entityMap[node.id]?.label
               });
 
-              if (String(node.id).startsWith("ghost:")) {
-                const parent = entityMap[node.data.parentId];
-                const link = parent?.links?.find((item) => item.id === node.data.entityId && item.relation === node.data.relation);
-                if (link) openLink(node.data.parentId, link, node.position);
-                return;
-              }
+     if (String(node.id).startsWith("ghost:")) {
+  const parent = entityMap[node.data.parentId];
+  const link = parent?.links?.find((item) => item.id === node.data.entityId && item.relation === node.data.relation);
+
+  // Mobile two-tap: first tap previews, second tap places on canvas.
+  // KEY FIX: do NOT call setActivePreviewId(null) on second tap —
+  // leaving it set keeps sameTrackAlreadyActive=true in startPlayback,
+  // so the already-playing audio is NOT restarted.
+  if (isTouchDeviceRef.current && node.data?.kind === "track") {
+    if (activePreviewId === node.data.entityId) {
+      // Second tap — place on canvas, playback continues uninterrupted
+      if (link) openLink(node.data.parentId, link, node.position);
+    } else {
+      // First tap — start preview only, do not place yet
+      setActivePreviewId(node.data.entityId);
+      const url = node.data.previewUrl;
+      if (url && url !== "null" && url !== "undefined") {
+        playPreviewUrl(node.data.entityId, url, "ghost-tap-direct", {
+          nowPlayingEntity: buildPreviewNowPlayingEntity(
+            {
+              artist: node.data.trackArtist || "",
+              title: node.data.trackTitle || node.data.label?.split(" · ")[0] || "",
+              album: node.data.trackAlbum || "",
+              artworkUrl: node.data.artworkUrl || ""
+            },
+            node.data.entityId, url, node.data.artworkUrl || ""
+          )
+        });
+      } else {
+        const artist = node.data.trackArtist;
+        const title = node.data.trackTitle;
+        if (artist && title) {
+          warmTrackPreview(
+            { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
+            node.data.entityId,
+            {
+              autoplay: true,
+              source: "ghost-tap-fetch",
+              nowPlayingEntity: buildPreviewNowPlayingEntity(
+                { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
+                node.data.entityId, null, node.data.artworkUrl || ""
+              )
+            }
+          ).catch((err) => console.warn("[audio-debug] ghost tap warmTrackPreview failed", err));
+        }
+      }
+    }
+    return;
+  }
+
+  // Desktop: original single-click-to-canvas behaviour (unchanged)
+  if (link) openLink(node.data.parentId, link, node.position);
+  return;
+}
               setSelectedId(node.id);
               const entity = entityMap[node.id];
               if (entity?.kind === "track") playEntity(entity, "node-click");
@@ -1778,12 +1832,13 @@ useEffect(() => {
             <Background gap={22} size={1} color="#1f2937" />
           </ReactFlow>
         </section>
-<aside className="now-playing-overlay">
+
+        <aside className="now-playing-overlay">
   <div
     className={`now-playing-shell ${nowPlayingEntity ? "is-active" : ""}`}
     key={`now-playing:${spotlightTrackEntity?.id || "empty"}:${nowPlayingVersion}`}
   >
-    <div className="now-playing-desktop detail-card secondary-card slim-section">
+    <div className="now-playing-desktop">
       <div className="now-playing-topline">
         <span className="detail-kind">
           {nowPlayingEntity ? "Now playing" : spotlightTrackEntity ? "Track" : "Now playing"}
@@ -1859,12 +1914,12 @@ useEffect(() => {
         <p className="detail-subtitle">Hover or click a track to start a preview.</p>
       )}
 
-<audio
-  ref={audioRef}
-  className={`now-playing-audio ${!nowPlayingEntity ? "hidden-audio" : ""}`}
-  controls
-  preload="auto"
-/>
+      <audio
+        ref={audioRef}
+        className={`now-playing-audio ${!nowPlayingEntity ? "hidden-audio" : ""}`}
+        controls
+        preload="auto"
+      />
     </div>
 
     <div className={`now-playing-mini ${nowPlayingEntity ? "is-active" : ""}`}>
@@ -1894,15 +1949,15 @@ useEffect(() => {
             </div>
           </button>
 
-<button
-  type="button"
-  className="now-playing-mini-toggle"
-  aria-label={isAudioPlaying ? "Pause preview" : "Play preview"}
-  aria-pressed={isAudioPlaying}
-  onClick={handleMiniPlayToggle}
->
-  <span className={`mini-toggle-glyph ${isAudioPlaying ? "pause" : "play"}`} />
-</button>
+          <button
+            type="button"
+            className="now-playing-mini-toggle"
+            aria-label={isAudioPlaying ? "Pause preview" : "Play preview"}
+            aria-pressed={isAudioPlaying}
+            onClick={handleMiniPlayToggle}
+          >
+            <span className={`mini-toggle-glyph ${isAudioPlaying ? "pause" : "play"}`} />
+          </button>
         </>
       ) : (
         <div className="now-playing-mini idle">

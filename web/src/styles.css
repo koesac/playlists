@@ -568,6 +568,32 @@ input {
 .ghost-card.kind-album { --accent: #f59e0b; }
 .ghost-card.kind-genre { --accent: #22c55e; }
 
+/* Mobile ghost card — playing state */
+.ghost-card {
+  position: relative; /* needed for ::after pulse ring */
+}
+
+.ghost-card.is-playing {
+  border-color: rgba(103, 232, 249, 0.8);
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.3), 0 18px 40px rgba(2, 6, 23, 0.4);
+}
+
+.ghost-tap-hint {
+  display: none; /* hidden on desktop — hover gives visual feedback */
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(103, 232, 249, 0.85);
+  letter-spacing: 0.03em;
+  text-align: right;
+}
+
+@media (hover: none) {
+  .ghost-tap-hint {
+    display: block;
+  }
+}
+
 .ghost-label {
   font-weight: 700;
   margin: 4px 0;
@@ -576,6 +602,43 @@ input {
 .ghost-card.hover-preview:hover,
 .entity-card.kind-track:hover {
   box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
+}
+
+/* Ghost card playing state — first tap on mobile starts preview */
+.ghost-card {
+  position: relative;
+}
+
+.ghost-card.is-playing {
+  border-color: rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
+}
+
+.ghost-card.is-playing::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 20px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.25);
+  animation: playingPulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* "Tap again to add" hint — only shown on touch devices */
+.ghost-tap-hint {
+  display: none;
+}
+
+@media (hover: none) {
+  .ghost-tap-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: rgba(34, 211, 238, 0.85);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
 }
 
 .handle {
