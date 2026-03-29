@@ -1,0 +1,6 @@
+.env
+node_modules
+api/node_modules
+web/node_modules
+web/dist
+.DS_Store

@@ -582,6 +582,7 @@ function FlowApp() {
   const [activePreviewId, setActivePreviewId] = useState("");
   const [nowPlayingOverride, setNowPlayingOverride] = useState(null);
   const [nowPlayingVersion, setNowPlayingVersion] = useState(0);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [previewCache, setPreviewCache] = useState({});
   const [helpOpen, setHelpOpen] = useState(false);
   const seeded = useRef(false);
@@ -673,6 +674,58 @@ function FlowApp() {
       })
       .slice(0, 6);
   }, [searchResults, blockedRecommendationIds, blockedRecommendationKeys]);
+
+  useEffect(() => {
+  const el = audioRef.current;
+  if (!el) return;
+
+  const syncPlaybackState = () => {
+    setIsAudioPlaying(Boolean(el.currentSrc) && !el.paused && !el.ended);
+  };
+
+  syncPlaybackState();
+
+  const events = [
+    "loadstart",
+    "loadedmetadata",
+    "canplay",
+    "play",
+    "playing",
+    "pause",
+    "ended",
+    "emptied",
+    "abort"
+  ];
+
+  events.forEach((type) => el.addEventListener(type, syncPlaybackState));
+
+  return () => {
+    events.forEach((type) => el.removeEventListener(type, syncPlaybackState));
+  };
+}, [nowPlayingEntity?.id, nowPlayingVersion]);
+
+const handleMiniPlayToggle = (event) => {
+  event.stopPropagation();
+
+  const el = audioRef.current;
+  if (!el) return;
+
+  userActivatedRef.current = true;
+
+  if (el.paused || el.ended) {
+    const playPromise = el.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((error) => {
+        console.debug("[audio-debug] mini play failed", {
+          message: error?.message,
+          name: error?.name
+        });
+      });
+    }
+  } else {
+    el.pause();
+  }
+};
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -905,30 +958,39 @@ useEffect(() => {
     ];
 
     const onEvent = (e) => {
-      if (e.type === "timeupdate") {
-        const sec = Math.floor(el.currentTime || 0);
-        if (sec === lastTimeUpdateSecondRef.current) return;
-        lastTimeUpdateSecondRef.current = sec;
+  if (e.type === "play" || e.type === "playing") {
+    setIsAudioPlaying(true);
+  }
+
+  if (e.type === "pause" || e.type === "ended" || e.type === "emptied") {
+    setIsAudioPlaying(false);
+  }
+
+  if (e.type === "timeupdate") {
+    const sec = Math.floor(el.currentTime || 0);
+    if (sec === lastTimeUpdateSecondRef.current) return;
+    lastTimeUpdateSecondRef.current = sec;
+  }
+
+  const error = el.error
+    ? {
+        code: el.error.code,
+        message: el.error.message
       }
+    : null;
 
-      const error = el.error
-        ? {
-            code: el.error.code,
-            message: el.error.message
-          }
-        : null;
+  console.debug("[audio-debug] media-event", {
+    type: e.type,
+    currentSrc: el.currentSrc,
+    currentTime: el.currentTime,
+    duration: el.duration,
+    paused: el.paused,
+    readyState: el.readyState,
+    networkState: el.networkState,
+    error
+  });
+};
 
-      console.debug("[audio-debug] media-event", {
-        type: e.type,
-        currentSrc: el.currentSrc,
-        currentTime: el.currentTime,
-        duration: el.duration,
-        paused: el.paused,
-        readyState: el.readyState,
-        networkState: el.networkState,
-        error
-      });
-    };
 
     events.forEach((name) => el.addEventListener(name, onEvent));
     return () => events.forEach((name) => el.removeEventListener(name, onEvent));
@@ -1716,40 +1778,143 @@ useEffect(() => {
             <Background gap={22} size={1} color="#1f2937" />
           </ReactFlow>
         </section>
+<aside className="now-playing-overlay">
+  <div
+    className={`now-playing-shell ${nowPlayingEntity ? "is-active" : ""}`}
+    key={`now-playing:${spotlightTrackEntity?.id || "empty"}:${nowPlayingVersion}`}
+  >
+    <div className="now-playing-desktop detail-card secondary-card slim-section">
+      <div className="now-playing-topline">
+        <span className="detail-kind">
+          {nowPlayingEntity ? "Now playing" : spotlightTrackEntity ? "Track" : "Now playing"}
+        </span>
+        {nowPlayingEntity ? <span className="detail-star playing-indicator">●</span> : null}
+      </div>
 
-        <aside className="now-playing-overlay">
-          <div className="now-playing-panel detail-card secondary-card slim-section" key={`now-playing:${spotlightTrackEntity?.id || "empty"}:${nowPlayingVersion}`}>
-            <div className="now-playing-topline">
-              <span className="detail-kind">{nowPlayingEntity ? "Now playing" : spotlightTrackEntity ? "Track" : "Now playing"}</span>
-              {nowPlayingEntity ? <span className="detail-star playing-indicator">●</span> : null}
+      {spotlightTrackEntity ? (
+        <>
+          <div className="now-playing-hero" key={`hero:${spotlightTrackEntity.id}:${nowPlayingVersion}`}>
+            <img
+              className="detail-artwork"
+              src={artworkForEntity(spotlightTrackEntity)}
+              alt=""
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = fallbackArtworkForEntity(spotlightTrackEntity);
+              }}
+            />
+            <div className="now-playing-copy">
+              <strong>{spotlightTrackEntity.label}</strong>
+              <div className="detail-subtitle">{spotlightTrackEntity.subtitle}</div>
+
+              {spotlightTrackStats.length ? (
+                <div className="chip-row compact">
+                  {spotlightTrackStats.map((item) => (
+                    <span key={`${spotlightTrackEntity.id}:${item}`} className="chip">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              {spotlightTrackEntity.kind === "track" && spotlightTrackEntity.details?.lines?.length ? (
+                <div className="detail-lines compact">
+                  {spotlightTrackEntity.details.lines
+                    .slice(0, 1)
+                    .filter(Boolean)
+                    .map((line, index) => (
+                      <p key={`${spotlightTrackEntity.id}:spotlight:${index}`}>{line}</p>
+                    ))}
+                </div>
+              ) : null}
             </div>
-            {spotlightTrackEntity ? (
-              <>
-                <div className="now-playing-hero" key={`hero:${spotlightTrackEntity.id}:${nowPlayingVersion}`}>
-                  <img className="detail-artwork" src={artworkForEntity(spotlightTrackEntity)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(spotlightTrackEntity); }} />
-                  <div className="now-playing-copy">
-                    <strong>{spotlightTrackEntity.label}</strong>
-                    <div className="detail-subtitle">{spotlightTrackEntity.subtitle}</div>
-                    {spotlightTrackStats.length ? <div className="chip-row compact">{spotlightTrackStats.map((item) => <span key={`${spotlightTrackEntity.id}:${item}`} className="chip">{item}</span>)}</div> : null}
-                    {spotlightTrackEntity.kind === "track" && spotlightTrackEntity.details?.lines?.length ? (
-                      <div className="detail-lines compact">
-                        {spotlightTrackEntity.details.lines.slice(0, 1).filter(Boolean).map((line, index) => <p key={`${spotlightTrackEntity.id}:spotlight:${index}`}>{line}</p>)}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="detail-actions compact now-playing-actions">
-                  <button className="ui-button secondary small" onClick={() => revealGhosts(spotlightTrackEntity.id)}>Links</button>
-                  <button className="ui-button secondary small" onClick={() => focusEntity(spotlightTrackEntity.id)}>Focus</button>
-                  {spotlightTrackEntity.kind === "track" ? <button className={`ui-button small ${playlistIds.includes(spotlightTrackEntity.id) ? "active" : ""}`} onClick={() => togglePlaylist(spotlightTrackEntity)}>{playlistIds.includes(spotlightTrackEntity.id) ? "Remove" : "Add"}</button> : null}
-                </div>
-              </>
-            ) : (
-              <p className="detail-subtitle">Hover or click a track to start a preview.</p>
-            )}
-            <audio key={`audio:${nowPlayingEntity?.id || "empty"}`} ref={audioRef} className={`now-playing-audio ${!nowPlayingEntity ? 'hidden-audio' : ''}`} controls preload="auto" style={{ display: nowPlayingEntity ? 'block' : 'none', marginTop: '12px', width: '100%', filter: 'invert(1) hue-rotate(180deg) saturate(0.72) brightness(0.94)' }} />
           </div>
-        </aside>
+
+          <div className="detail-actions compact now-playing-actions">
+            <button
+              className="ui-button secondary small"
+              onClick={() => revealGhosts(spotlightTrackEntity.id)}
+            >
+              Links
+            </button>
+
+            <button
+              className="ui-button secondary small"
+              onClick={() => focusEntity(spotlightTrackEntity.id)}
+            >
+              Focus
+            </button>
+
+            {spotlightTrackEntity.kind === "track" ? (
+              <button
+                className={`ui-button small ${playlistIds.includes(spotlightTrackEntity.id) ? "active" : ""}`}
+                onClick={() => togglePlaylist(spotlightTrackEntity)}
+              >
+                {playlistIds.includes(spotlightTrackEntity.id) ? "Remove" : "Add"}
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : (
+        <p className="detail-subtitle">Hover or click a track to start a preview.</p>
+      )}
+
+<audio
+  ref={audioRef}
+  className={`now-playing-audio ${!nowPlayingEntity ? "hidden-audio" : ""}`}
+  controls
+  preload="auto"
+/>
+    </div>
+
+    <div className={`now-playing-mini ${nowPlayingEntity ? "is-active" : ""}`}>
+      {spotlightTrackEntity ? (
+        <>
+          <button
+            type="button"
+            className="now-playing-main"
+            onClick={() => {
+              focusEntity(spotlightTrackEntity.id);
+              setDetailOpen(true);
+            }}
+            aria-label={`Open details for ${spotlightTrackEntity.label}`}
+          >
+            <img
+              className="now-playing-mini-artwork"
+              src={artworkForEntity(spotlightTrackEntity)}
+              alt=""
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = fallbackArtworkForEntity(spotlightTrackEntity);
+              }}
+            />
+            <div className="now-playing-mini-copy">
+              <strong>{spotlightTrackEntity.label}</strong>
+              <div className="detail-subtitle">{spotlightTrackEntity.subtitle}</div>
+            </div>
+          </button>
+
+<button
+  type="button"
+  className="now-playing-mini-toggle"
+  aria-label={isAudioPlaying ? "Pause preview" : "Play preview"}
+  aria-pressed={isAudioPlaying}
+  onClick={handleMiniPlayToggle}
+>
+  <span className={`mini-toggle-glyph ${isAudioPlaying ? "pause" : "play"}`} />
+</button>
+        </>
+      ) : (
+        <div className="now-playing-mini idle">
+          <div className="now-playing-mini-copy">
+            <strong>Nothing yet</strong>
+            <div className="detail-subtitle">Tap a track to preview</div>
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+</aside>
 
         <aside className={`detail-panel minimal-detail ${detailOpen ? "open" : "collapsed"}`}>
           <div className="panel-floating-togglebar">
