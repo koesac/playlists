@@ -2192,17 +2192,19 @@ useEffect(() => {
 
         <aside className={`detail-panel minimal-detail ${detailOpen ? "open" : "collapsed"}`}>
           <div className="panel-floating-togglebar">
-            <div className="panel-title">
-              <DetailsIcon />
-              <span className="detail-kind">Details</span>
-            </div>
+            {detailOpen ? (
+              <div className="panel-title">
+                <DetailsIcon />
+                <span className="detail-kind">Details</span>
+              </div>
+            ) : null}
             <button
               className="icon-button panel-toggle-button"
               onClick={() => setDetailOpen((open) => !open)}
               title={detailOpen ? "Collapse details" : "Expand details"}
               aria-label={detailOpen ? "Collapse details" : "Expand details"}
             >
-              <ChevronIcon direction={detailOpen ? "right" : "left"} />
+              {detailOpen ? <ChevronIcon direction="right" /> : <DetailsIcon />}
             </button>
           </div>
 
@@ -2261,6 +2263,33 @@ useEffect(() => {
                 <span className="detail-kind">Playlist</span>
               </div>
             ) : null}
+            <div className="panel-actions">
+              {drawerOpen && playlist.length > 0 ? (
+                <button
+                  className="icon-button copy-playlist-button"
+                  onClick={async () => {
+                    try {
+                      const text = playlist.map(track => {
+                        const artist = track.subtitle?.split(' · ')[0] || '';
+                        const song = track.label || '';
+                        return `${artist} - ${song}`;
+                      }).filter(line => line.trim()).join('\n');
+                      await navigator.clipboard.writeText(text);
+                      setMessage('Playlist copied to clipboard!');
+                    } catch (err) {
+                      setMessage('Failed to copy playlist');
+                    }
+                  }}
+                  title="Copy playlist to clipboard"
+                  aria-label="Copy playlist to clipboard"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
             <button
               className="icon-button panel-toggle-button"
               onClick={() => setDrawerOpen((open) => !open)}

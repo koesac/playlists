@@ -1,19 +1,3 @@
-/* ============================================================
-   STRATEGIC STYLES — consolidated & mobile-fixed
-   Z-index ladder:
-     9999  React Flow controls / minimap
-      300  Mobile toggle buttons (collapsed detail + closed drawer)
-      200  Mobile detail panel (open, full-screen)
-      100  Floating search (desktop)
-       90  Detail panel (desktop)
-       80  Drawer (desktop)
-       31  Floating actions (mobile, bottom)
-       24  Now-playing overlay
-       20  Floating actions (desktop)
-   ============================================================ */
-
-/* ── Custom properties ───────────────────────────────────── */
-
 :root {
   --bg: #020617;
   --panel: rgba(8, 17, 32, 0.84);
@@ -36,11 +20,6 @@ body,
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(148,163,184,0.35) rgba(255,255,255,0.03);
-}
-
-html,
-body {
-  overscroll-behavior: none;
 }
 
 html,
@@ -82,8 +61,6 @@ input {
   background: linear-gradient(180deg, rgba(124,58,237,0.75), rgba(14,165,233,0.65));
 }
 
-/* ── Color-scheme overrides ──────────────────────────────── */
-
 .graph-shell,
 .minimal-shell,
 .search-bar-shell,
@@ -95,8 +72,6 @@ input {
 .playlist-drawer {
   color-scheme: dark;
 }
-
-/* ── Shell / layout ──────────────────────────────────────── */
 
 .graph-shell,
 .minimal-shell {
@@ -127,8 +102,6 @@ input {
   inset: 0;
 }
 
-/* ── Legacy panel containers ─────────────────────────────── */
-
 .detail-panel,
 .playlist-drawer {
   min-height: 0;
@@ -140,26 +113,19 @@ input {
   backdrop-filter: blur(12px);
 }
 
-/* ── Floating search (desktop: centered at top) ──────────── */
-
 .floating-search {
   position: absolute;
   top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-  width: min(600px, calc(100% - 28px));
+  left: 14px;
+  z-index: 32;
+  width: min(520px, calc(100% - 28px));
   display: grid;
   gap: 10px;
 }
 
 .floating-search.collapsed {
   width: auto;
-  transform: none;
-  left: auto;
 }
-
-/* ── Search bar shell ────────────────────────────────────── */
 
 .search-bar-shell {
   display: grid;
@@ -220,8 +186,6 @@ input {
   background: rgba(15, 23, 42, 0.96);
 }
 
-/* ── Buttons & UI elements ───────────────────────────────── */
-
 .search-go,
 .icon-button,
 .ui-button,
@@ -252,8 +216,6 @@ input {
   border-color: rgba(124,58,237,0.8);
   box-shadow: inset 0 0 0 1px rgba(124,58,237,0.3);
 }
-
-/* ── Popovers & flyouts ──────────────────────────────────── */
 
 .help-popover,
 .result-flyout,
@@ -334,8 +296,13 @@ input {
   font-size: 12px;
 }
 
-.result-chip.track  { border-color: rgba(124,58,237,0.36); }
-.result-chip.artist { border-color: rgba(14,165,233,0.36); }
+.result-chip.track {
+  border-color: rgba(124,58,237,0.36);
+}
+
+.result-chip.artist {
+  border-color: rgba(14,165,233,0.36);
+}
 
 .message-box.floating {
   padding: 10px 12px;
@@ -343,16 +310,12 @@ input {
   background: rgba(127, 29, 29, 0.42);
 }
 
-/* ── Floating actions (desktop: top-right) ───────────────── */
-
 .floating-actions.right {
   position: absolute;
   top: 14px;
   right: 14px;
   z-index: 20;
 }
-
-/* ── React Flow ──────────────────────────────────────────── */
 
 .react-flow__node {
   border: none;
@@ -374,7 +337,6 @@ input {
   background: rgba(2, 6, 23, 0.82);
   backdrop-filter: blur(12px);
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.4);
-  z-index: 9999;
 }
 
 .react-flow__controls-button {
@@ -395,11 +357,10 @@ input {
 
 .react-flow__minimap {
   background: rgba(2, 6, 23, 0.8) !important;
-  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.4);
-  z-index: 9999;
 }
 
 .react-flow__minimap-mask {
@@ -409,8 +370,6 @@ input {
 .react-flow__panel.react-flow__attribution {
   display: none;
 }
-
-/* ── Entity cards ────────────────────────────────────────── */
 
 .entity-card,
 .detail-card,
@@ -549,8 +508,6 @@ input {
   color: #c4b5fd;
 }
 
-/* ── Soundwave animation ─────────────────────────────────── */
-
 .soundwave-cluster {
   position: absolute;
   right: 14px;
@@ -574,8 +531,6 @@ input {
 .soundwave-cluster span:nth-child(3) { height: 14px; animation-delay: 0.24s; }
 .soundwave-cluster span:nth-child(4) { height: 20px; animation-delay: 0.36s; }
 
-/* ── Chips ───────────────────────────────────────────────── */
-
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -595,8 +550,6 @@ input {
   font-size: 12px;
 }
 
-/* ── Ghost cards ─────────────────────────────────────────── */
-
 .ghost-card {
   width: 196px;
   padding: 12px;
@@ -604,41 +557,35 @@ input {
   border-left: 4px solid var(--accent);
   background: rgba(8, 17, 32, 0.9);
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
-  position: relative;
 }
 
 .ghost-card.new {
   border-style: dashed;
 }
 
-.ghost-card.kind-track  { --accent: #7c3aed; }
+.ghost-card.kind-track { --accent: #7c3aed; }
 .ghost-card.kind-artist { --accent: #0ea5e9; }
-.ghost-card.kind-album  { --accent: #f59e0b; }
-.ghost-card.kind-genre  { --accent: #22c55e; }
+.ghost-card.kind-album { --accent: #f59e0b; }
+.ghost-card.kind-genre { --accent: #22c55e; }
 
-.ghost-card.is-playing {
-  border-color: rgba(34, 211, 238, 0.55);
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
+/* Mobile ghost card — playing state */
+.ghost-card {
+  position: relative; /* needed for ::after pulse ring */
 }
 
-.ghost-card.is-playing::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 20px;
-  border: 1px solid rgba(34, 211, 238, 0.45);
-  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.25);
-  animation: playingPulse 1.6s ease-out infinite;
-  pointer-events: none;
+.ghost-card.is-playing {
+  border-color: rgba(103, 232, 249, 0.8);
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.3), 0 18px 40px rgba(2, 6, 23, 0.4);
 }
 
 .ghost-tap-hint {
-  display: none;
+  display: none; /* hidden on desktop — hover gives visual feedback */
   margin-top: 6px;
-  font-size: 11px;
-  color: rgba(34, 211, 238, 0.85);
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(103, 232, 249, 0.85);
+  letter-spacing: 0.03em;
+  text-align: right;
 }
 
 @media (hover: none) {
@@ -657,7 +604,42 @@ input {
   box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
 }
 
-/* ── Node handles ────────────────────────────────────────── */
+/* Ghost card playing state — first tap on mobile starts preview */
+.ghost-card {
+  position: relative;
+}
+
+.ghost-card.is-playing {
+  border-color: rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
+}
+
+.ghost-card.is-playing::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 20px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.25);
+  animation: playingPulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* "Tap again to add" hint — only shown on touch devices */
+.ghost-tap-hint {
+  display: none;
+}
+
+@media (hover: none) {
+  .ghost-tap-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: rgba(34, 211, 238, 0.85);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+}
 
 .handle {
   width: 8px;
@@ -667,22 +649,20 @@ input {
 }
 
 .kind-track,
-.kind-track .handle  { --accent: #7c3aed; }
+.kind-track .handle { --accent: #7c3aed; }
 
 .kind-artist,
 .kind-artist .handle { --accent: #0ea5e9; }
 
 .kind-album,
-.kind-album .handle  { --accent: #f59e0b; }
+.kind-album .handle { --accent: #f59e0b; }
 
 .kind-genre,
-.kind-genre .handle  { --accent: #22c55e; }
+.kind-genre .handle { --accent: #22c55e; }
 
 .ghost-loading {
   opacity: 0.78;
 }
-
-/* ── Now-playing overlay ─────────────────────────────────── */
 
 .now-playing-overlay {
   position: absolute;
@@ -746,8 +726,6 @@ input {
   display: block;
   filter: invert(1) hue-rotate(180deg) saturate(0.72) brightness(0.94);
 }
-
-/* ── Now-playing mini bar ────────────────────────────────── */
 
 .now-playing-mini {
   display: none;
@@ -837,8 +815,6 @@ input {
   display: none !important;
 }
 
-/* ── Mini toggle glyph ───────────────────────────────────── */
-
 .mini-toggle-glyph {
   display: block;
   position: relative;
@@ -870,208 +846,28 @@ input {
 }
 
 .mini-toggle-glyph.pause::before { left: 1px; }
-.mini-toggle-glyph.pause::after  { right: 1px; }
-
-/* ── Detail panel (desktop: right-side drawer) ───────────── */
+.mini-toggle-glyph.pause::after { right: 1px; }
 
 .minimal-detail {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 90;
-  width: min(420px, 100%);
-  height: 100vh;
+  top: 14px;
+  right: 14px;
+  z-index: 30;
+  width: min(420px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
-  padding: 14px;
-  background: rgba(8, 17, 32, 0.92);
-  border-left: 1px solid var(--border);
-  border-radius: 0;
-  transition: transform 0.3s ease;
-  backdrop-filter: blur(12px);
-  touch-action: pan-y;
-  overscroll-behavior-y: contain;
+  padding: 12px;
 }
 
 .minimal-detail.collapsed {
-  transform: translateX(calc(100% - 48px));
-  background: transparent;
-  border-left: none;
-  backdrop-filter: none;
+  grid-template-rows: auto auto;
 }
 
 .minimal-detail.collapsed .detail-scroll-area {
   display: none;
 }
-
-/* ── Playlist drawer (desktop: left-side panel) ──────────── */
-
-.minimal-drawer {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 80;
-  width: min(340px, calc(100vw - 28px));
-  max-height: calc(100vh - 160px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  background: rgba(8, 17, 32, 0.88);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  transition: opacity 180ms ease, transform 180ms ease;
-  backdrop-filter: blur(12px);
-  box-shadow: var(--shadow);
-  touch-action: pan-y;
-  overscroll-behavior-y: contain;
-}
-
-.minimal-drawer.closed {
-  width: auto;
-  min-width: 0;
-  transform: none;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-/* ── Collapsed / closed panel shared states ──────────────── */
-
-.minimal-detail.collapsed,
-.minimal-drawer.closed {
-  width: auto;
-  min-width: 0;
-  max-height: none;
-  padding: 0;
-  gap: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  overflow: visible;
-}
-
-.minimal-detail.collapsed .panel-floating-togglebar,
-.minimal-drawer.closed .panel-floating-togglebar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-.minimal-detail.collapsed .panel-title,
-.minimal-drawer.closed .panel-title {
-  display: none;
-}
-
-.minimal-detail.collapsed .panel-toggle-button,
-.minimal-drawer.closed .panel-toggle-button {
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  background: rgba(15, 23, 42, 0.92);
-  box-shadow: var(--shadow);
-  border-radius: 14px;
-}
-
-/* ── Panel togglebars ────────────────────────────────────── */
-
-.panel-floating-togglebar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0;
-}
-
-.panel-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-}
-
-.panel-title svg {
-  opacity: 0.9;
-}
-
-.playlist-togglebar {
-  justify-content: space-between;
-}
-
-.panel-toggle-button {
-  flex: 0 0 auto;
-}
-
-.panel-floating-togglebar .detail-kind {
-  color: var(--muted);
-}
-
-/* ── Collapsed search bar ────────────────────────────────── */
-
-.collapsed-search-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* ── Studio title bar ────────────────────────────────────── */
-
-.studio-title-bar {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 14px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(2, 6, 23, 0.72);
-  backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
-}
-
-.studio-title-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 14px;
-  outline: none;
-}
-
-.save-studio-button {
-  width: 32px;
-  height: 32px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  background: rgba(15, 23, 42, 0.8);
-  color: var(--muted);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.save-studio-button:hover {
-  background: var(--accent);
-  color: white;
-  border-color: transparent;
-}
-
-.save-studio-button.saving {
-  animation: savingPulse 1s ease-in-out infinite;
-  opacity: 0.7;
-}
-
-/* ── Detail card & variants ──────────────────────────────── */
 
 .detail-card {
   padding: 14px;
@@ -1125,8 +921,6 @@ input {
   margin-top: 10px;
 }
 
-/* ── Link list ───────────────────────────────────────────── */
-
 .link-list {
   display: grid;
   gap: 10px;
@@ -1149,13 +943,18 @@ input {
   border-left: 4px solid transparent;
 }
 
-.link-pill.opened  { border-color: rgba(34, 197, 94, 0.55); }
-.link-pill.pending { border-style: dashed; }
+.link-pill.opened {
+  border-color: rgba(34, 197, 94, 0.55);
+}
 
-.link-pill.link-track  { border-left-color: #7c3aed; }
+.link-pill.pending {
+  border-style: dashed;
+}
+
+.link-pill.link-track { border-left-color: #7c3aed; }
 .link-pill.link-artist { border-left-color: #0ea5e9; }
-.link-pill.link-album  { border-left-color: #f59e0b; }
-.link-pill.link-genre  { border-left-color: #22c55e; }
+.link-pill.link-album { border-left-color: #f59e0b; }
+.link-pill.link-genre { border-left-color: #22c55e; }
 
 .ui-button.secondary {
   background: rgba(255,255,255,0.04);
@@ -1171,7 +970,58 @@ input {
   border-radius: 12px;
 }
 
-/* ── Drawer list ─────────────────────────────────────────── */
+.minimal-drawer {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 31;
+  width: min(340px, calc(100vw - 28px));
+  max-height: min(48vh, 560px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.minimal-drawer.closed {
+  width: auto;
+  min-width: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.panel-floating-togglebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.panel-title svg {
+  opacity: 0.9;
+}
+
+.playlist-togglebar {
+  justify-content: space-between;
+}
+
+.panel-toggle-button {
+  flex: 0 0 auto;
+}
+
+.panel-floating-togglebar .detail-kind {
+  color: var(--muted);
+}
 
 .drawer-list,
 .compact-drawer {
@@ -1234,8 +1084,6 @@ input {
   background: rgba(15, 23, 42, 0.55);
 }
 
-/* ── Detail scroll area ──────────────────────────────────── */
-
 .detail-scroll-area {
   min-height: 0;
   overflow: auto;
@@ -1243,7 +1091,238 @@ input {
   gap: 10px;
 }
 
-/* ── Drafts panel ────────────────────────────────────────── */
+@keyframes soundwave {
+  0%, 100% { transform: scaleY(0.45); opacity: 0.55; }
+  50% { transform: scaleY(1.1); opacity: 1; }
+}
+
+@keyframes playingPulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.28); opacity: 0.9; }
+  100% { box-shadow: 0 0 0 16px rgba(34, 211, 238, 0); opacity: 0; }
+}
+
+@keyframes nowPlayingBlink {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .floating-search {
+    left: 14px;
+    right: 14px;
+    width: auto;
+  }
+
+  .search-bar-expanded {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .search-bar-expanded .search-go {
+    display: none;
+  }
+
+  .minimal-detail {
+    left: 14px;
+    right: 14px;
+    width: auto;
+    max-height: calc(100vh - 28px);
+    z-index: 33;
+  }
+
+  .now-playing-overlay {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 24;
+  }
+
+  .now-playing-desktop {
+    display: none;
+  }
+
+  .now-playing-mini {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 58px;
+    padding: 7px 8px;
+    border-radius: 16px;
+    background: rgba(8, 17, 32, 0.96);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.34);
+  }
+
+  .now-playing-main {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    padding: 0;
+  }
+
+  .now-playing-mini-artwork {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .now-playing-mini-copy {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+    line-height: 1.08;
+  }
+
+  .now-playing-mini-copy strong {
+    font-size: 13px;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+
+  .now-playing-mini-copy .detail-subtitle {
+    margin-top: 0;
+    font-size: 11px;
+    line-height: 1.1;
+    color: var(--muted);
+  }
+
+  .now-playing-mini-toggle {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow: none;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .now-playing-audio {
+    display: none !important;
+  }
+
+  .react-flow__controls {
+    margin-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+
+  .minimal-drawer {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    max-height: min(34vh, 320px);
+  }
+
+  .floating-actions.right {
+    top: auto;
+    right: 10px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    z-index: 31;
+  }
+}
+
+.minimal-detail.collapsed,
+.minimal-drawer.closed {
+  width: auto;
+  min-width: 0;
+  max-height: none;
+  padding: 0;
+  gap: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: visible;
+}
+
+.minimal-detail.collapsed .panel-floating-togglebar,
+.minimal-drawer.closed .panel-floating-togglebar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.minimal-detail.collapsed .panel-title,
+.minimal-drawer.closed .panel-title {
+  display: none;
+}
+
+.minimal-detail.collapsed .panel-toggle-button,
+.minimal-drawer.closed .panel-toggle-button {
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: var(--shadow);
+  border-radius: 14px;
+}
+
+.collapsed-search-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.studio-title-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 14px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+
+.studio-title-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+  outline: none;
+}
+
+.save-studio-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-studio-button:hover {
+  background: var(--accent);
+  color: white;
+  border-color: transparent;
+}
+
+.save-studio-button.saving {
+  animation: savingPulse 1s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+@keyframes savingPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
 
 .drafts-header-wrap {
   padding: 8px 12px;
@@ -1324,260 +1403,3 @@ input {
 .draft-item-row.active .result-copy strong {
   color: #22d3ee;
 }
-
-/* ── Keyframes ───────────────────────────────────────────── */
-
-@keyframes soundwave {
-  0%, 100% { transform: scaleY(0.45); opacity: 0.55; }
-  50%       { transform: scaleY(1.1);  opacity: 1; }
-}
-
-@keyframes playingPulse {
-  0%   { box-shadow: 0 0 0 0px rgba(34, 211, 238, 0.28); opacity: 0.9; }
-  100% { box-shadow: 0 0 0 16px rgba(34, 211, 238, 0);   opacity: 0; }
-}
-
-@keyframes nowPlayingBlink {
-  0%, 100% { opacity: 0.45; }
-  50%       { opacity: 1; }
-}
-
-@keyframes savingPulse {
-  0%, 100% { opacity: 0.7; transform: scale(1); }
-  50%       { opacity: 1;   transform: scale(1.1); }
-}
-
-/* ── Mobile ≤ 900px ──────────────────────────────────────── */
-
-@media (max-width: 900px) {
-
-  /* Search: move to bottom, above now-playing bar */
-  .floating-search {
-    top: auto;
-    bottom: calc(84px + env(safe-area-inset-bottom));
-    left: 14px;
-    right: 14px;
-    width: auto;
-    transform: none;
-  }
-
-  .search-bar-expanded {
-    /* Drop the "Go" button column on small screens */
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-
-  .search-bar-expanded .search-go {
-    display: none;
-  }
-
-  /* Floating actions: move to bottom-right, above now-playing */
-  .floating-actions.right {
-    top: auto;
-    right: 10px;
-    bottom: calc(72px + env(safe-area-inset-bottom));
-    z-index: 31;
-  }
-
-  /* Now playing: hide desktop card, show compact mini bar */
-  .now-playing-overlay {
-    left: 10px;
-    right: 10px;
-    width: auto;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    z-index: 24;
-  }
-
-  .now-playing-desktop {
-    display: none;
-  }
-
-  .now-playing-mini {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-    min-height: 58px;
-    padding: 7px 8px;
-    border-radius: 16px;
-    background: rgba(8, 17, 32, 0.96);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    backdrop-filter: blur(18px);
-    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.34);
-  }
-
-  .now-playing-main {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 36px minmax(0, 1fr);
-    gap: 9px;
-    align-items: center;
-    padding: 0;
-  }
-
-  .now-playing-mini-artwork {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-  }
-
-  .now-playing-mini-copy {
-    min-width: 0;
-    display: grid;
-    gap: 1px;
-    line-height: 1.08;
-  }
-
-  .now-playing-mini-copy strong {
-    font-size: 13px;
-    line-height: 1.1;
-    letter-spacing: -0.01em;
-  }
-
-  .now-playing-mini-copy .detail-subtitle {
-    margin-top: 0;
-    font-size: 11px;
-    line-height: 1.1;
-    color: var(--muted);
-  }
-
-  .now-playing-mini-toggle {
-    width: 38px;
-    height: 38px;
-    flex: 0 0 38px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 800;
-    box-shadow: none;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-  }
-
-  .now-playing-audio {
-    display: none !important;
-  }
-
-  /* Detail panel: full-screen on mobile, slides in from right */
-  .minimal-detail {
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 200;
-    background: var(--bg);
-    border-left: none;
-    border-radius: 0;
-    /* Reset desktop slide-out transform — open state fills screen */
-    transform: none;
-  }
-
-  /*
-   * When detail is collapsed on mobile, only the toggle button is shown
-   * at top-right. z-index 300 ensures it sits ABOVE the open detail panel
-   * (z-index 200) and the open drawer (z-index 80), so it's always tappable.
-   */
-  .minimal-detail.collapsed {
-    top: 14px;
-    right: 14px;
-    left: auto;
-    bottom: auto;
-    width: auto;
-    height: auto;
-    transform: none;
-    background: transparent;
-    border: none;
-    z-index: 300;
-  }
-
-  /*
-   * Playlist drawer: narrowed so the detail toggle button at top-right
-   * stays clear; room = 48px button + 14px gap + 14px edge = ~76px.
-   */
-  .minimal-drawer {
-    top: 14px;
-    left: 14px;
-    max-width: calc(100% - 76px);
-  }
-
-  /*
-   * When drawer is closed on mobile, only its toggle button shows at
-   * top-left. z-index 300 matches the collapsed detail toggle so both
-   * buttons are always hittable regardless of which panel is open.
-   */
-  .minimal-drawer.closed {
-    z-index: 300;
-  }
-
-  /* React Flow controls: float above everything, clear of now-playing bar */
-  .react-flow__controls {
-    margin-bottom: calc(72px + env(safe-area-inset-bottom));
-    z-index: 9999 !important;
-  }
-
-  .react-flow__minimap {
-    z-index: 9999 !important;
-  }
-}
-
-/* ── Strategic interaction layers ────────────────────────── */
-
-/*
- * 1. Canvas wrapper shells — transparent to pointer events so the canvas
- *    below can receive pan / zoom gestures freely.
- */
-.graph-main,
-.graph-panel,
-.react-flow__stage {
-  pointer-events: none !important;
-  overflow: visible !important;
-  overscroll-behavior: none;
-}
-
-/*
- * 2. Canvas internals — fully interactive (nodes, edges, controls, minimap).
- */
-.react-flow__viewport,
-.react-flow__canvas,
-.react-flow__node,
-.react-flow__edge,
-.react-flow__controls,
-.react-flow__minimap {
-  pointer-events: auto !important;
-}
-
-/*
- * 3. Open floating panels — fully interactive.
- */
-.floating-search,
-.minimal-detail,
-.minimal-drawer {
-  pointer-events: auto !important;
-}
-
-/*
- * 4. Collapsed / closed panel containers — transparent to pointer events;
- *    only the toggle buttons inside them receive taps / clicks.
- */
-.minimal-detail.collapsed,
-.minimal-drawer.closed {
-  pointer-events: none !important;
-}
-
-.minimal-detail.collapsed button,
-.minimal-detail.collapsed .panel-toggle-button,
-.minimal-drawer.closed button,
-.minimal-drawer.closed .panel-toggle-button,
-.panel-floating-togglebar button {
-  pointer-events: auto !important;
-  position: relative !important;
-}
-
-  /*
-   * 5. Touch safety — prevent browser handling of touch gestures on canvas.
-   */
-  @media (hover: none) {
-    .react-flow__viewport {
-      touch-action: none !important;
-    }
-  }
