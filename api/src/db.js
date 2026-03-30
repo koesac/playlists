@@ -50,8 +50,16 @@ function saveDraft({ id, title, data }) {
   return getDraft(id);
 }
 
+function deleteDraft(id) {
+  db.prepare(`
+    DELETE FROM drafts
+    WHERE id = ?
+  `).run(id);
+}
+
 module.exports = {
   listDrafts,
   getDraft,
-  saveDraft
+  saveDraft,
+  deleteDraft
 };

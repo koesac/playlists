@@ -566,6 +566,42 @@ function CloseIcon() {
   );
 }
 
+function DraftsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+    </svg>
+  );
+}
+
+function SaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+    </svg>
+  );
+}
+
 const STORAGE_KEY = "ai-playlist-studio-state-v1";
 
 function FlowApp() {
@@ -588,6 +624,11 @@ function FlowApp() {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [previewCache, setPreviewCache] = useState({});
   const [helpOpen, setHelpOpen] = useState(false);
+  const [drafts, setDrafts] = useState([]);
+  const [currentDraftId, setCurrentDraftId] = useState("");
+  const [draftTitle, setDraftTitle] = useState("Untitled Studio");
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const seeded = useRef(false);
   const hydrated = useRef(false);
   const hoverPreviewTimerRef = useRef(null);
@@ -650,6 +691,116 @@ const isTouchDeviceRef = useRef(
     if (!entity) return [];
     return (entity.links || []).filter((link) => !isRecommendationBlocked(link, entityId));
   }, [entityMap, isRecommendationBlocked]);
+
+  const fetchDrafts = useCallback(async () => {
+    try {
+      const res = await api("/api/drafts");
+      setDrafts(res.data || []);
+    } catch (err) {
+      setMessage(`Failed to fetch drafts: ${err.message}`);
+    }
+  }, []);
+
+  const saveCurrentDraft = useCallback(async (title = draftTitle) => {
+    setSaving(true);
+    try {
+      const persistentNodes = nodes.filter((node) => !String(node.id).startsWith("ghost:"));
+      const persistentEdges = edges.filter((edge) => !String(edge.id).startsWith("ghost-edge:"));
+
+      const payload = {
+        id: currentDraftId || undefined,
+        title: title || "Untitled Studio",
+        data: {
+          entityMap,
+          nodes: persistentNodes,
+          edges: persistentEdges,
+          playlist,
+          selectedId,
+          drawerOpen,
+          detailOpen,
+          previewCache,
+          viewport: getViewport()
+        }
+      };
+
+      const saved = await api("/api/drafts", {
+        method: "POST",
+        body: payload
+      });
+
+      setCurrentDraftId(saved.id);
+      setDraftTitle(saved.title);
+      setMessage(`Saved "${saved.title}"`);
+      fetchDrafts();
+    } catch (err) {
+      setMessage(`Save failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [currentDraftId, draftTitle, entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, previewCache, getViewport, fetchDrafts]);
+
+  const loadDraft = useCallback(async (id) => {
+    try {
+      const draft = await api(`/api/drafts/${id}`);
+      const saved = draft.data;
+
+      // Stop audio
+      setAudioSrc("");
+      setActivePreviewId("");
+
+      setEntityMap(saved.entityMap || {});
+      setNodes((saved.nodes || []).filter((node) => !String(node.id).startsWith("ghost:")));
+      setEdges((saved.edges || []).filter((edge) => !String(edge.id).startsWith("ghost-edge:")));
+      setPlaylist(saved.playlist || []);
+      setSelectedId(saved.selectedId || "");
+      setDrawerOpen(Boolean(saved.drawerOpen));
+      setDetailOpen(saved.detailOpen !== false);
+      setPreviewCache(saved.previewCache || {});
+
+      setCurrentDraftId(draft.id);
+      setDraftTitle(draft.title);
+      setDraftsOpen(false);
+
+      if (saved.viewport) {
+        requestAnimationFrame(() => {
+          setViewport(saved.viewport, { duration: 400 });
+        });
+      }
+
+      setMessage(`Loaded "${draft.title}"`);
+    } catch (err) {
+      setMessage(`Load failed: ${err.message}`);
+    }
+  }, [setNodes, setEdges, setViewport]);
+
+  const deleteDraftById = useCallback(async (id) => {
+    if (!window.confirm("Delete this playlist?")) return;
+    try {
+      await api(`/api/drafts/${id}`, { method: "DELETE" });
+      if (id === currentDraftId) {
+        setCurrentDraftId("");
+        setDraftTitle("Untitled Studio");
+      }
+      fetchDrafts();
+    } catch (err) {
+      setMessage(`Delete failed: ${err.message}`);
+    }
+  }, [currentDraftId, fetchDrafts]);
+
+  const createNewStudio = useCallback(() => {
+    if (!window.confirm("Create new studio? Current unsaved changes might be lost if not saved to a playlist.")) return;
+    setAudioSrc("");
+    setActivePreviewId("");
+    setEntityMap({});
+    setNodes([]);
+    setEdges([]);
+    setPlaylist([]);
+    setSelectedId("");
+    setCurrentDraftId("");
+    setDraftTitle("Untitled Studio");
+    setDraftsOpen(false);
+  }, []);
+
   const selectedEntity = selectedId ? entityMap[selectedId] : null;
   const nowPlayingEntity = nowPlayingOverride || (activePreviewId ? entityMap[activePreviewId] : null);
   const selectedTrackEntity = selectedEntity?.kind === "track" ? selectedEntity : null;
@@ -741,7 +892,11 @@ const handleMiniPlayToggle = (event) => {
 
   useEffect(() => {
     const handlePointerDown = (event) => {
-      if (!searchBoxRef.current?.contains(event.target)) { setSearchOpen(false); setHelpOpen(false); }
+      if (!searchBoxRef.current?.contains(event.target)) {
+        setSearchOpen(false);
+        setDraftsOpen(false);
+        setHelpOpen(false);
+      }
     };
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("touchstart", handlePointerDown, { passive: true });
@@ -835,11 +990,13 @@ const handleMiniPlayToggle = (event) => {
         activePreviewId,
         audioSrc,
         previewCache,
+        currentDraftId,
+        draftTitle,
         viewport: getViewport()
       }));
     } catch {
     }
-  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, getViewport]);
+  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, getViewport, currentDraftId, draftTitle]);
 
   const debugAudio = useCallback((event, payload = {}) => {
     const el = audioRef.current;
@@ -1576,6 +1733,10 @@ useEffect(() => {
   }, [playPreviewUrl, warmTrackPreview]);
 
   useEffect(() => {
+    fetchDrafts();
+  }, [fetchDrafts]);
+
+  useEffect(() => {
     if (seeded.current) return;
     seeded.current = true;
     loadTrack({ title: "Midnight City", artist: "M83", album: "Hurry Up, We're Dreaming" }).catch(() => {});
@@ -1585,30 +1746,39 @@ useEffect(() => {
     <div className="graph-shell minimal-shell">
       <div className="graph-main compact-layout">
         <section className="graph-panel full-canvas" ref={graphPanelRef}>
-          <div className={`floating-search ${searchOpen ? "open" : "collapsed"}`} ref={searchBoxRef}>
-            {searchOpen ? (
+          <div className={`floating-search ${(searchOpen || draftsOpen) ? "open" : "collapsed"}`} ref={searchBoxRef}>
+            {(searchOpen || draftsOpen) ? (
               <>
                 <div className="search-bar-shell search-bar-expanded">
-                  <div className="search-input-wrap">
-                    <span className="search-leading-icon"><SearchIcon /></span>
-                    <input
-                      ref={searchInputRef}
-                      className="search-input minimal"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search artists or tracks"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") search();
-                        if (e.key === "Escape") {
-                          setSearchOpen(false);
-                          setHelpOpen(false);
-                        }
-                      }}
-                    />
-                  </div>
-                  <button className="search-go" onClick={search} disabled={searching}>{searching ? "…" : "Go"}</button>
+                  {searchOpen ? (
+                    <>
+                      <div className="search-input-wrap">
+                        <span className="search-leading-icon"><SearchIcon /></span>
+                        <input
+                          ref={searchInputRef}
+                          className="search-input minimal"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          placeholder="Search artists or tracks"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") search();
+                            if (e.key === "Escape") {
+                              setSearchOpen(false);
+                              setHelpOpen(false);
+                            }
+                          }}
+                        />
+                      </div>
+                      <button className="search-go" onClick={search} disabled={searching}>{searching ? "…" : "Go"}</button>
+                    </>
+                  ) : (
+                    <div className="search-input-wrap drafts-header-wrap">
+                      <span className="search-leading-icon"><DraftsIcon /></span>
+                      <strong className="panel-header-title">Saved Studios</strong>
+                    </div>
+                  )}
                   <IconButton title="Help" onClick={() => setHelpOpen((v) => !v)} active={helpOpen}>?</IconButton>
-                  <IconButton title="Close search" onClick={() => { setSearchOpen(false); setHelpOpen(false); }}><CloseIcon /></IconButton>
+                  <IconButton title="Close" onClick={() => { setSearchOpen(false); setDraftsOpen(false); setHelpOpen(false); }}><CloseIcon /></IconButton>
                 </div>
 
                 {helpOpen && (
@@ -1635,11 +1805,60 @@ useEffect(() => {
                     ))}
                   </div>
                 )}
+
+                {draftsOpen && (
+                  <div className="result-flyout drafts-flyout">
+                    <button className="result-chip featured add-new-studio" onClick={createNewStudio}>
+                      <span className="result-artwork-placeholder"><PlusIcon /></span>
+                      <div className="result-copy">
+                        <strong>Create New Studio</strong>
+                        <em>Start fresh on the canvas</em>
+                      </div>
+                    </button>
+                    {drafts.length === 0 ? (
+                      <div className="empty-flyout-state">No saved studios yet.</div>
+                    ) : (
+                      drafts.map((d) => (
+                        <div key={d.id} className={`draft-item-row ${d.id === currentDraftId ? "active" : ""}`}>
+                          <button className="result-chip draft-load-button" onClick={() => loadDraft(d.id)}>
+                            <div className="result-copy">
+                              <strong>
+                                {d.id === currentDraftId && <span className="active-dot">●</span>}
+                                {d.title}
+                              </strong>
+                              <em>Updated {new Date(d.updated_at).toLocaleDateString()}</em>
+                            </div>
+                          </button>
+                          <button className="icon-button delete-draft-button" onClick={() => deleteDraftById(d.id)} title="Delete">
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </>
             ) : (
-              <button className="search-launch-button" onClick={() => setSearchOpen(true)} aria-label="Open search" title="Open search">
-                <SearchIcon />
-              </button>
+              <div className="collapsed-search-bar">
+                <button className="search-launch-button" onClick={() => setSearchOpen(true)} aria-label="Open search" title="Open search">
+                  <SearchIcon />
+                </button>
+                <button className="search-launch-button" onClick={() => { setDraftsOpen(true); fetchDrafts(); }} aria-label="Open drafts" title="Open saved studios">
+                  <DraftsIcon />
+                </button>
+                <div className="studio-title-bar">
+                  <input
+                    className="studio-title-input"
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    onBlur={() => saveCurrentDraft()}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  />
+                  <button className={`save-studio-button ${saving ? "saving" : ""}`} onClick={() => saveCurrentDraft()} title="Save studio">
+                    <SaveIcon />
+                  </button>
+                </div>
+              </div>
             )}
 
             {message ? <div className="message-box floating">{message}</div> : null}

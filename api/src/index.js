@@ -149,6 +149,11 @@ app.post("/api/drafts", (req, res) => {
   res.json(saved);
 });
 
+app.delete("/api/drafts/:id", (req, res) => {
+  deleteDraft(req.params.id);
+  res.json({ ok: true });
+});
+
 app.listen(port, () => {
   console.log(`API listening on ${port}`);
 });
