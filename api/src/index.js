@@ -3,7 +3,7 @@ const cors = require("cors");
 const morgan = require("morgan");
 const crypto = require("crypto");
 
-const { listDrafts, getDraft, saveDraft } = require("./db");
+const { listDrafts, getDraft, saveDraft, deleteDraft } = require("./db");
 const {
   searchMusicBrainzTracks,
   searchMusicBrainzArtists,

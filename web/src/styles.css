@@ -38,6 +38,11 @@ body,
   scrollbar-color: rgba(148,163,184,0.35) rgba(255,255,255,0.03);
 }
 
+html {
+  overflow: hidden;
+  height: -webkit-fill-available; /* legacy iOS height fix */
+}
+
 html,
 body {
   overscroll-behavior: none;
@@ -49,9 +54,15 @@ body,
   margin: 0;
   width: 100%;
   height: 100%;
+  height: 100dvh;
 }
 
 body {
+  position: fixed;          /* nuclear iOS scroll lock — eliminates rubber-band */
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
   font-family: Inter, system-ui, Arial, sans-serif;
   background: radial-gradient(circle at top, #13203b 0%, #020617 58%);
   color: var(--text);
@@ -60,6 +71,13 @@ body {
 button,
 input {
   font: inherit;
+  font-size: max(16px, 1em); /* iOS won't zoom if ≥ 16px */
+}
+
+/* Ensure all text inputs have minimum 16px font */
+.search-input.minimal,
+.studio-title-input {
+  font-size: max(16px, 1em);
 }
 
 *::-webkit-scrollbar {
@@ -100,7 +118,8 @@ input {
 
 .graph-shell,
 .minimal-shell {
-  height: 100vh;
+  height: 100vh;          /* fallback */
+  height: 100dvh;         /* dynamic — shrinks/grows with iOS chrome */
 }
 
 .graph-main,
@@ -108,7 +127,8 @@ input {
   position: relative;
   display: block;
   padding: 0;
-  height: 100vh;
+  height: 100vh;          /* fallback */
+  height: 100dvh;         /* dynamic — shrinks/grows with iOS chrome */
 }
 
 .graph-panel {
@@ -119,7 +139,8 @@ input {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  overflow: hidden;
+  overflow: hidden !important;    /* safer fallback for iOS 15 */
+  clip-path: inset(0);            /* allows visual overflow like overflow: clip */
 }
 
 .full-canvas {
@@ -282,6 +303,7 @@ input {
   padding: 8px;
   display: grid;
   gap: 8px;
+  -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
 }
 
 .result-chip {
@@ -881,7 +903,8 @@ input {
   bottom: 0;
   z-index: 90;
   width: min(420px, 100%);
-  height: 100vh;
+  height: 100vh;          /* fallback */
+  height: 100dvh;         /* dynamic — shrinks/grows with iOS chrome */
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -893,6 +916,7 @@ input {
   backdrop-filter: blur(12px);
   touch-action: pan-y;
   overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
 }
 
 .minimal-detail.collapsed {
@@ -1241,6 +1265,7 @@ input {
   overflow: auto;
   display: grid;
   gap: 10px;
+  -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
 }
 
 /* ── Drafts panel ────────────────────────────────────────── */
@@ -1299,6 +1324,17 @@ input {
   opacity: 1;
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.3);
+}
+
+.delete-entity-button {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.delete-entity-button:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #f87171;
 }
 
 .empty-flyout-state {
@@ -1494,26 +1530,27 @@ input {
    * Playlist drawer: narrowed so the detail toggle button at top-right
    * stays clear; room = 48px button + 14px gap + 14px edge = ~76px.
    */
-  .minimal-drawer {
-    top: 14px;
-    left: 14px;
-    max-width: calc(100% - 76px);
-  }
-
-  /*
-   * When drawer is closed on mobile, only its toggle button shows at
-   * top-left. z-index 300 matches the collapsed detail toggle so both
-   * buttons are always hittable regardless of which panel is open.
-   */
-  .minimal-drawer.closed {
-    z-index: 300;
-  }
-
-  /* React Flow controls: float above everything, clear of now-playing bar */
-  .react-flow__controls {
-    margin-bottom: calc(72px + env(safe-area-inset-bottom));
-    z-index: 9999 !important;
-  }
+.minimal-drawer {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 80;
+  width: min(340px, calc(100vw - 28px));
+  max-height: calc(100vh - 160px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: rgba(8, 17, 32, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  transition: opacity 180ms ease, transform 180ms ease;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
+}
 
   .react-flow__minimap {
     z-index: 9999 !important;
@@ -1530,13 +1567,17 @@ input {
 .graph-panel,
 .react-flow__stage {
   pointer-events: none !important;
-  overflow: visible !important;
+  overflow: hidden !important;    /* safer fallback for iOS 15 */
+  clip-path: inset(0);            /* allows visual overflow like overflow: clip */
   overscroll-behavior: none;
+  touch-action: none;           /* ← prevents iOS gesture bubbling */
 }
 
 /*
  * 2. Canvas internals — fully interactive (nodes, edges, controls, minimap).
  */
+.react-flow__pane,
+.xy-flow__pane,
 .react-flow__viewport,
 .react-flow__canvas,
 .react-flow__node,
@@ -1573,11 +1614,25 @@ input {
   position: relative !important;
 }
 
-  /*
-   * 5. Touch safety — prevent browser handling of touch gestures on canvas.
-   */
-  @media (hover: none) {
-    .react-flow__viewport {
-      touch-action: none !important;
-    }
+/*
+ * 5. Touch safety — prevent browser handling of touch gestures on canvas.
+ *    Unconditional (not in media query) to catch Apple Pencil hover devices.
+ */
+.react-flow__pane,
+.xy-flow__pane,
+.react-flow__viewport,
+.full-canvas {
+  touch-action: none !important;
+}
+
+/*
+ * 6. Reduce backdrop-filter on mobile to prevent compositor overload
+ */
+@media (max-width: 900px) {
+  .minimal-detail,
+  .minimal-drawer,
+  .search-bar-shell {
+    backdrop-filter: none;
+    background: rgba(8, 17, 32, 0.97); /* compensate with opacity */
   }
+}

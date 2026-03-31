@@ -998,6 +998,40 @@ const handleMiniPlayToggle = (event) => {
     }
   }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, getViewport, currentDraftId, draftTitle]);
 
+  // Auto-save draft on changes with debounce
+  useEffect(() => {
+    if (!hydrated.current || typeof window === "undefined") return;
+    if (!currentDraftId) return; // Only auto-save if a draft exists
+
+    const handler = setTimeout(() => {
+      const persistentNodes = nodes.filter((node) => !String(node.id).startsWith("ghost:"));
+      const persistentEdges = edges.filter((edge) => !String(edge.id).startsWith("ghost-edge:"));
+
+      api("/api/drafts", {
+        method: "POST",
+        body: {
+          id: currentDraftId,
+          title: draftTitle,
+          data: {
+            entityMap,
+            nodes: persistentNodes,
+            edges: persistentEdges,
+            playlist,
+            selectedId,
+            drawerOpen,
+            detailOpen,
+            previewCache,
+            viewport: getViewport()
+          }
+        }
+      }).then(() => {
+        fetchDrafts();
+      }).catch(() => {});
+    }, 1500);
+
+    return () => clearTimeout(handler);
+  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, previewCache, currentDraftId, draftTitle, getViewport, fetchDrafts]);
+
   const debugAudio = useCallback((event, payload = {}) => {
     const el = audioRef.current;
     console.debug(`[audio-debug] ${event}`, {
@@ -1529,6 +1563,24 @@ useEffect(() => {
     setEdges((current) => current.filter((edge) => !String(edge.id).startsWith("ghost-edge:")));
   }, [setEdges, setNodes]);
 
+  const deleteEntity = useCallback((entityId) => {
+    if (!entityId) return;
+    setNodes((current) => current.filter((node) => node.id !== entityId && !String(node.id).startsWith("ghost:")));
+    setEdges((current) => current.filter((edge) => edge.source !== entityId && edge.target !== entityId && !String(edge.id).startsWith("ghost-edge:")));
+    setEntityMap((current) => {
+      const next = { ...current };
+      delete next[entityId];
+      return next;
+    });
+    if (selectedId === entityId) setSelectedId("");
+    if (activePreviewId === entityId) {
+      setActivePreviewId("");
+      setAudioSrc("");
+      setNowPlayingOverride(null);
+    }
+    setPlaylist((current) => current.filter((item) => item.id !== entityId));
+  }, [selectedId, activePreviewId]);
+
   const revealGhosts = useCallback((entityId) => {
     const entity = entityMap[entityId];
     const parentNode = nodes.find((node) => node.id === entityId);
@@ -1737,6 +1789,20 @@ useEffect(() => {
   }, [fetchDrafts]);
 
   useEffect(() => {
+    const handleKeyDown = (event) => {
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !String(selectedId).startsWith("ghost:")) {
+        const target = event.target;
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+        event.preventDefault();
+        deleteEntity(selectedId);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedId, deleteEntity]);
+
+  useEffect(() => {
     if (seeded.current) return;
     seeded.current = true;
     loadTrack({ title: "Midnight City", artist: "M83", album: "Hurry Up, We're Dreaming" }).catch(() => {});
@@ -1871,6 +1937,11 @@ useEffect(() => {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={(params) => setEdges((eds) => addEdge({ ...params, labelShowBg: false, style: { stroke: "#475569", strokeWidth: 1.5 } }, eds))}
+            panOnDrag={true}
+            zoomOnPinch={true}
+            zoomOnScroll={true}
+            preventScrolling={true}
+            style={{ touchAction: 'none' }}
             onNodeClick={(event, node) => {
               console.debug("[audio-debug] onNodeClick", {
                 nodeId: node.id,
@@ -2233,6 +2304,9 @@ useEffect(() => {
                       </div>
                       <div className="detail-actions compact">
                         <button className="ui-button secondary" onClick={() => revealGhosts(selectedEntity.id)}>Links</button>
+                        <button className="ui-button small delete-entity-button" onClick={() => deleteEntity(selectedEntity.id)} title="Delete from canvas">
+                          <TrashIcon />
+                        </button>
                       </div>
                     </div>
                   ) : null}
@@ -2257,12 +2331,13 @@ useEffect(() => {
 
         <aside className={`playlist-drawer minimal-drawer ${drawerOpen ? "open" : "closed"}`}>
           <div className="panel-floating-togglebar playlist-togglebar">
-            {drawerOpen ? (
-              <div className="panel-title">
-                <PlaylistIcon />
-                <span className="detail-kind">Playlist</span>
-              </div>
-            ) : null}
+          {drawerOpen ? (
+            <div className="panel-title">
+              <PlaylistIcon />
+              <span className="detail-kind">Playlist</span>
+              <span className="detail-kind">({playlist.length})</span>
+            </div>
+          ) : null}
             <div className="panel-actions">
               {drawerOpen && playlist.length > 0 ? (
                 <button
