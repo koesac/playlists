@@ -610,6 +610,11 @@ function FlowApp() {
   const [searching, setSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
   const [entityMap, setEntityMap] = useState({});
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -642,6 +647,7 @@ function FlowApp() {
   const graphPanelRef = useRef(null);
   const searchBoxRef = useRef(null);
   const searchInputRef = useRef(null);
+  const playlistDrawerRef = useRef(null);
   
 const isTouchDeviceRef = useRef(
   typeof window !== "undefined" && window.matchMedia("(hover: none)").matches
@@ -892,7 +898,9 @@ const handleMiniPlayToggle = (event) => {
 
   useEffect(() => {
     const handlePointerDown = (event) => {
-      if (!searchBoxRef.current?.contains(event.target)) {
+      const inSearchBox = searchBoxRef.current?.contains(event.target);
+      const inPlaylistDrawer = playlistDrawerRef.current?.contains(event.target);
+      if (!inSearchBox && !inPlaylistDrawer) {
         setSearchOpen(false);
         setDraftsOpen(false);
         setHelpOpen(false);
@@ -1812,39 +1820,30 @@ useEffect(() => {
     <div className="graph-shell minimal-shell">
       <div className="graph-main compact-layout">
         <section className="graph-panel full-canvas" ref={graphPanelRef}>
-          <div className={`floating-search ${(searchOpen || draftsOpen) ? "open" : "collapsed"}`} ref={searchBoxRef}>
-            {(searchOpen || draftsOpen) ? (
+          <div className={`floating-search ${searchOpen ? "open" : "collapsed"}`} ref={searchBoxRef}>
+            {searchOpen ? (
               <>
                 <div className="search-bar-shell search-bar-expanded">
-                  {searchOpen ? (
-                    <>
-                      <div className="search-input-wrap">
-                        <span className="search-leading-icon"><SearchIcon /></span>
-                        <input
-                          ref={searchInputRef}
-                          className="search-input minimal"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          placeholder="Search artists or tracks"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") search();
-                            if (e.key === "Escape") {
-                              setSearchOpen(false);
-                              setHelpOpen(false);
-                            }
-                          }}
-                        />
-                      </div>
-                      <button className="search-go" onClick={search} disabled={searching}>{searching ? "…" : "Go"}</button>
-                    </>
-                  ) : (
-                    <div className="search-input-wrap drafts-header-wrap">
-                      <span className="search-leading-icon"><DraftsIcon /></span>
-                      <strong className="panel-header-title">Saved Studios</strong>
-                    </div>
-                  )}
+                  <div className="search-input-wrap">
+                    <span className="search-leading-icon"><SearchIcon /></span>
+                    <input
+                      ref={searchInputRef}
+                      className="search-input minimal"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search artists or tracks"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") search();
+                        if (e.key === "Escape") {
+                          setSearchOpen(false);
+                          setHelpOpen(false);
+                        }
+                      }}
+                    />
+                  </div>
+                  <button className="search-go" onClick={search} disabled={searching}>{searching ? "…" : "Go"}</button>
                   <IconButton title="Help" onClick={() => setHelpOpen((v) => !v)} active={helpOpen}>?</IconButton>
-                  <IconButton title="Close" onClick={() => { setSearchOpen(false); setDraftsOpen(false); setHelpOpen(false); }}><CloseIcon /></IconButton>
+                  <IconButton title="Close" onClick={() => { setSearchOpen(false); setHelpOpen(false); }}><CloseIcon /></IconButton>
                 </div>
 
                 {helpOpen && (
@@ -1854,7 +1853,7 @@ useEffect(() => {
                   </div>
                 )}
 
-                {searchOpen && (topArtistMatch || otherArtistResults.length > 0 || trackResults.length > 0) && (
+                {(topArtistMatch || otherArtistResults.length > 0 || trackResults.length > 0) && (
                   <div className="result-flyout">
                     {topArtistMatch ? <ResultButton item={topArtistMatch} kind="artist" featured onClick={() => selectSearchResult("artist", topArtistMatch)} /> : null}
                     {otherArtistResults.map((item) => (
@@ -1871,59 +1870,12 @@ useEffect(() => {
                     ))}
                   </div>
                 )}
-
-                {draftsOpen && (
-                  <div className="result-flyout drafts-flyout">
-                    <button className="result-chip featured add-new-studio" onClick={createNewStudio}>
-                      <span className="result-artwork-placeholder"><PlusIcon /></span>
-                      <div className="result-copy">
-                        <strong>Create New Studio</strong>
-                        <em>Start fresh on the canvas</em>
-                      </div>
-                    </button>
-                    {drafts.length === 0 ? (
-                      <div className="empty-flyout-state">No saved studios yet.</div>
-                    ) : (
-                      drafts.map((d) => (
-                        <div key={d.id} className={`draft-item-row ${d.id === currentDraftId ? "active" : ""}`}>
-                          <button className="result-chip draft-load-button" onClick={() => loadDraft(d.id)}>
-                            <div className="result-copy">
-                              <strong>
-                                {d.id === currentDraftId && <span className="active-dot">●</span>}
-                                {d.title}
-                              </strong>
-                              <em>Updated {new Date(d.updated_at).toLocaleDateString()}</em>
-                            </div>
-                          </button>
-                          <button className="icon-button delete-draft-button" onClick={() => deleteDraftById(d.id)} title="Delete">
-                            <TrashIcon />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
               </>
             ) : (
               <div className="collapsed-search-bar">
                 <button className="search-launch-button" onClick={() => setSearchOpen(true)} aria-label="Open search" title="Open search">
                   <SearchIcon />
                 </button>
-                <button className="search-launch-button" onClick={() => { setDraftsOpen(true); fetchDrafts(); }} aria-label="Open drafts" title="Open saved studios">
-                  <DraftsIcon />
-                </button>
-                <div className="studio-title-bar">
-                  <input
-                    className="studio-title-input"
-                    value={draftTitle}
-                    onChange={(e) => setDraftTitle(e.target.value)}
-                    onBlur={() => saveCurrentDraft()}
-                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                  />
-                  <button className={`save-studio-button ${saving ? "saving" : ""}`} onClick={() => saveCurrentDraft()} title="Save studio">
-                    <SaveIcon />
-                  </button>
-                </div>
               </div>
             )}
 
@@ -2329,71 +2281,144 @@ useEffect(() => {
           ) : null}
         </aside>
 
-        <aside className={`playlist-drawer minimal-drawer ${drawerOpen ? "open" : "closed"}`}>
+        <aside className={`playlist-drawer minimal-drawer ${drawerOpen ? "open" : "closed"}`} ref={playlistDrawerRef}>
           <div className="panel-floating-togglebar playlist-togglebar">
-          {drawerOpen ? (
-            <div className="panel-title">
-              <PlaylistIcon />
-              <span className="detail-kind">Playlist</span>
-              <span className="detail-kind">({playlist.length})</span>
-            </div>
-          ) : null}
-            <div className="panel-actions">
-              {drawerOpen && playlist.length > 0 ? (
-                <button
-                  className="icon-button copy-playlist-button"
-                  onClick={async () => {
-                    try {
-                      const text = playlist.map(track => {
-                        const artist = track.subtitle?.split(' · ')[0] || '';
-                        const song = track.label || '';
-                        return `${artist} - ${song}`;
-                      }).filter(line => line.trim()).join('\n');
-                      await navigator.clipboard.writeText(text);
-                      setMessage('Playlist copied to clipboard!');
-                    } catch (err) {
-                      setMessage('Failed to copy playlist');
-                    }
-                  }}
-                  title="Copy playlist to clipboard"
-                  aria-label="Copy playlist to clipboard"
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" />
-                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-            <button
-              className="icon-button panel-toggle-button"
-              onClick={() => setDrawerOpen((open) => !open)}
-              title={drawerOpen ? "Collapse playlist" : "Expand playlist"}
-              aria-label={drawerOpen ? "Collapse playlist" : "Expand playlist"}
-            >
-              <PlaylistIcon />
-            </button>
+            {!drawerOpen ? (
+              <button
+                className="icon-button panel-toggle-button"
+                onClick={() => setDrawerOpen((open) => !open)}
+                title="Expand playlist"
+                aria-label="Expand playlist"
+              >
+                <PlaylistIcon />
+              </button>
+            ) : (
+              <>
+                <div className="panel-title">
+                  <PlaylistIcon />
+                  <span className="detail-kind">Playlist</span>
+                  <span className="detail-kind">({playlist.length})</span>
+                </div>
+                <div className="panel-actions">
+                  {playlist.length > 0 && (
+                    <button
+                      className="icon-button copy-playlist-button"
+                      onClick={async () => {
+                        try {
+                          const text = playlist.map(track => {
+                            const artist = track.subtitle?.split(' · ')[0] || '';
+                            const song = track.label || '';
+                            return `${artist} - ${song}`;
+                          }).filter(line => line.trim()).join('\n');
+                          await navigator.clipboard.writeText(text);
+                          setMessage('Playlist copied to clipboard!');
+                        } catch (err) {
+                          setMessage('Failed to copy playlist');
+                        }
+                      }}
+                      title="Copy playlist to clipboard"
+                      aria-label="Copy playlist to clipboard"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" />
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    className="icon-button panel-toggle-button"
+                    onClick={() => setDrawerOpen((open) => !open)}
+                    title="Collapse playlist"
+                    aria-label="Collapse playlist"
+                  >
+                    <ChevronIcon direction="left" />
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {drawerOpen ? (
-            <div className="drawer-list compact-drawer">
-              {playlist.length === 0 ? <div className="empty-drawer">No tracks yet.</div> : null}
-              {playlist.map((track) => (
-                <div key={track.id} className="drawer-track">
-                  <div className="drawer-track-main">
+            <>
+              <div className="drawer-list compact-drawer">
+                {playlist.length === 0 ? <div className="empty-drawer">No tracks yet.</div> : null}
+                {playlist.map((track) => (
+                  <div key={track.id} className="drawer-track">
                     <img className="drawer-artwork" src={artworkForEntity(track)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(track); }} />
-                    <div>
+                    <div className="drawer-track-info">
                       <strong>{track.label}</strong>
                       <div>{track.subtitle}</div>
                     </div>
+                    <div className="drawer-track-controls">
+                      <button className="ui-button secondary small" onClick={() => focusEntity(track.id)} title="Focus on canvas">Focus</button>
+                      <button className="ui-button small" onClick={() => togglePlaylist(track)} title="Remove from playlist">Remove</button>
+                    </div>
                   </div>
-                  <div className="drawer-actions compact">
-                    <button className="ui-button secondary small" onClick={() => focusEntity(track.id)}>Focus</button>
-                    <button className="ui-button small" onClick={() => togglePlaylist(track)}>Remove</button>
-                  </div>
+                ))}
+              </div>
+
+              <div className="playlist-drawer-footer">
+                <div className="studio-title-bar">
+                  <input
+                    className="studio-title-input"
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    onBlur={() => saveCurrentDraft()}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    placeholder="Studio name"
+                  />
+                  <button className={`save-studio-button ${saving ? "saving" : ""}`} onClick={() => saveCurrentDraft()} title="Save studio">
+                    <SaveIcon />
+                  </button>
                 </div>
-              ))}
-            </div>
+                <button
+                  className="ui-button secondary small open-drafts-button"
+                  style={{ marginTop: '8px', width: '100%' }}
+                  onClick={() => { setDraftsOpen((v) => !v); fetchDrafts(); }}
+                >
+                  <DraftsIcon />
+                  <span>Saved Studios</span>
+                </button>
+
+                {draftsOpen && (
+                  <div className="drafts-overlay">
+                    <div className="drafts-overlay-header">
+                      <strong>Saved Studios</strong>
+                      <button className="icon-button close-drafts-button" onClick={() => setDraftsOpen(false)} title="Close">
+                        <CloseIcon />
+                      </button>
+                    </div>
+                    <button className="result-chip featured add-new-studio" onClick={createNewStudio}>
+                      <span className="result-artwork-placeholder"><PlusIcon /></span>
+                      <div className="result-copy">
+                        <strong>Create New Studio</strong>
+                        <em>Start fresh on the canvas</em>
+                      </div>
+                    </button>
+                    {drafts.length === 0 ? (
+                      <div className="empty-flyout-state">No saved studios yet.</div>
+                    ) : (
+                      drafts.map((d) => (
+                        <div key={d.id} className={`draft-item-row ${d.id === currentDraftId ? "active" : ""}`}>
+                          <button className="result-chip draft-load-button" onClick={() => loadDraft(d.id)}>
+                            <div className="result-copy">
+                              <strong>
+                                {d.id === currentDraftId && <span className="active-dot">●</span>}
+                                {d.title}
+                              </strong>
+                              <em>Updated {new Date(d.updated_at).toLocaleDateString()}</em>
+                            </div>
+                          </button>
+                          <button className="icon-button delete-draft-button" onClick={() => deleteDraftById(d.id)} title="Delete">
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
           ) : null}
         </aside>
       </div>
