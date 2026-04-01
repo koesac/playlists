@@ -966,6 +966,10 @@ const handleMiniPlayToggle = (event) => {
             inPlaylist: nextPlaylistIds.includes(node.data.entityId),
             isPlaying: nextActivePreviewId === node.data.entityId,
             previewUrl: node.data.previewUrl || nextEntityMap[node.data.entityId]?.previewUrl || "",
+            artworkUrl: node.data.artworkUrl
+              || previewCache[node.data.entityId]?.artworkUrl
+              || nextEntityMap[node.data.entityId]?.artworkUrl
+              || "",
             onTogglePlaylist: togglePlaylist
           }
         };
@@ -1444,6 +1448,14 @@ useEffect(() => {
         setPreviewCache((current) => current[cacheKey] ? current : { ...current, [cacheKey]: previewUrl });
       }
 
+      if (artworkUrl) {
+        setEntityMap((current) => {
+          const existing = current[targetId];
+          if (existing && existing.artworkUrl) return current;
+          return { ...current, [targetId]: { ...(existing || {}), artworkUrl } };
+        });
+      }
+
       setEntityMap((current) => {
         const stub = buildTrackEntityStub({ artist, title, album, artworkUrl }, targetId, previewUrl, artworkUrl);
         const existing = current[targetId];
@@ -1710,7 +1722,17 @@ useEffect(() => {
         if (loadedEntity.kind === "track") playEntity(loadedEntity);
         return;
       }
-      if (link.kind === "track" && link.payload) return loadTrack(link.payload, sourceId, link.relation);
+      if (link.kind === "track" && link.payload) {
+        const ghostNodeId = `ghost:${sourceId}:${link.id}:${link.relation}`;
+        const ghostNode = nodes.find((n) => n.id === ghostNodeId);
+        const cachedPreview = ghostNode?.data?.entityId ? previewCache[linkCanonicalKey(link, entityMap[sourceId]) || ""] : null;
+        const seededTrack = {
+          ...link.payload,
+          artworkUrl: link.payload.artworkUrl || cachedPreview?.artworkUrl || "",
+          previewUrl: link.payload.previewUrl || cachedPreview?.previewUrl || ""
+        };
+        return loadTrack(seededTrack, sourceId, link.relation);
+      }
       if (link.kind === "artist") return loadArtist({ name: link.payload?.name || link.label, id: link.id, artworkUrl: link.payload?.artworkUrl || "" }, sourceId, link.relation);
       if (link.kind === "album") return loadAlbum(link.artist || entityMap[sourceId]?.label || "", link.album || link.label.split(" · ")[0], sourceId, link.relation);
       if (link.kind === "genre") return loadGenre(link.tag || link.label, sourceId, link.relation);

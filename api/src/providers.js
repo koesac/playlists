@@ -3,6 +3,7 @@ const Redis = require("ioredis");
 const redis = new Redis(process.env.REDIS_URL || "redis://redis:6379");
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
+const LASTFM_NO_IMAGE_HASH = "2a96cbd8b46e442fc41c2b86b821562f";
 const MUSICBRAINZ_USER_AGENT =
   process.env.MUSICBRAINZ_USER_AGENT || "AIPlaylistStudio/0.1.0 (dev@example.com)";
 const PREVIEW_DEBUG = process.env.PREVIEW_DEBUG === "1";
@@ -94,7 +95,10 @@ function coverArtArchiveUrl(releaseId, size = 250) {
 }
 
 function bestLastfmImage(images = []) {
-  const picked = [...images].reverse().find((img) => img["#text"]);
+  const picked = [...images].reverse().find((img) => {
+    const text = img["#text"];
+    return text && !text.includes(LASTFM_NO_IMAGE_HASH);
+  });
   return normalizeArtworkUrl(picked?.["#text"] || null);
 }
 
@@ -514,9 +518,10 @@ async function resolveTrackPreview(track, options = {}) {
     };
   }
 
+  const appleArt = normalizeArtworkUrl(hit.artworkUrl100 || hit.artworkUrl60 || "");
   return {
     previewUrl: hit.previewUrl || track.previewUrl || "",
-    artworkUrl: track.artworkUrl || normalizeArtworkUrl(hit.artworkUrl100 || hit.artworkUrl60 || "") || "",
+    artworkUrl: appleArt || track.artworkUrl || "",
     durationMs: track.durationMs || hit.trackTimeMillis || null,
     providerRef: { source: "apple", id: String(hit.trackId || ""), url: hit.trackViewUrl || null }
   };
