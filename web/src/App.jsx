@@ -75,8 +75,8 @@ function normalizePreviewMatchText(text) {
   return String(text || "")
     .toLowerCase()
     .replace(/\[[^\]]*\]|\([^)]*\)/g, " ")
-    .replace(/(feat\.?|ft\.?|featuring).*$/i, " ")
-    .replace(/(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|demo|session|radio edit|extended|club mix|dub|mono|stereo)/gi, " ")
+    .replace(/\b(feat\.?|ft\.?|featuring)\b.*$/i, " ")
+    .replace(/\b(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|demo|session|radio edit|extended|club mix|dub|mono|stereo)\b/gi, " ")
     .replace(/[-–—:/]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -149,7 +149,7 @@ function normalizeArtworkUrl(url) {
   const value = String(url || "").trim();
   if (!value) return "";
   const absolute = value.startsWith("//") ? `https:${value}` : value;
-  return absolute.replace(/(\d{2,4})x(\d{2,4})(bb)?/g, (_match, _w, _h, suffix = "") => {
+  return absolute.replace(/\b(\d{2,4})x(\d{2,4})(bb)?\b/g, (_match, _w, _h, suffix = "") => {
     const tag = suffix || (absolute.includes("bb.") ? "bb" : "");
     return `600x600${tag}`;
   });
@@ -1423,8 +1423,8 @@ useEffect(() => {
       const previewUrl = result?.previewUrl || "";
       const artworkUrl = result?.artworkUrl || "";
 
-      if (!previewUrl) {
-        console.debug("[audio-debug] warmTrackPreview no-preview", {
+      if (!previewUrl && !artworkUrl) {
+        console.debug("[audio-debug] warmTrackPreview no-preview-and-no-artwork", {
           source,
           targetId,
           cacheKey,
@@ -1435,7 +1435,10 @@ useEffect(() => {
         return "";
       }
 
-      setPreviewCache((current) => current[cacheKey] ? current : { ...current, [cacheKey]: previewUrl });
+      if (previewUrl) {
+        setPreviewCache((current) => current[cacheKey] ? current : { ...current, [cacheKey]: previewUrl });
+      }
+
       setEntityMap((current) => {
         const stub = buildTrackEntityStub({ artist, title, album, artworkUrl }, targetId, previewUrl, artworkUrl);
         const existing = current[targetId];
@@ -1448,13 +1451,14 @@ useEffect(() => {
           })
         };
       });
+
       setNodes((current) => current.map((node) => {
         if (!String(node.id).startsWith("ghost:")) return node;
         const sameKey = node.data?.kind === "track" && trackKey(node.data?.trackArtist, node.data?.trackTitle) === trackKey(artist, title);
         return sameKey ? { ...node, data: { ...node.data, previewUrl } } : node;
       }));
 
-      if (autoplay && (requestToken == null || requestToken === hoverPreviewTokenRef.current)) {
+      if (previewUrl && autoplay && (requestToken == null || requestToken === hoverPreviewTokenRef.current)) {
         playPreviewUrl(targetId, previewUrl, `${source}:resolved`, {
           nowPlayingEntity: nowPlayingEntityOverride || buildPreviewNowPlayingEntity(trackLike, targetId, previewUrl, artworkUrl)
         });
@@ -2126,31 +2130,6 @@ useEffect(() => {
               ) : null}
             </div>
           </div>
-
-          <div className="detail-actions compact now-playing-actions">
-            <button
-              className="ui-button secondary small"
-              onClick={() => revealGhosts(spotlightTrackEntity.id)}
-            >
-              Links
-            </button>
-
-            <button
-              className="ui-button secondary small"
-              onClick={() => focusEntity(spotlightTrackEntity.id)}
-            >
-              Focus
-            </button>
-
-            {spotlightTrackEntity.kind === "track" ? (
-              <button
-                className={`ui-button small ${playlistIds.includes(spotlightTrackEntity.id) ? "active" : ""}`}
-                onClick={() => togglePlaylist(spotlightTrackEntity)}
-              >
-                {playlistIds.includes(spotlightTrackEntity.id) ? "Remove" : "Add"}
-              </button>
-            ) : null}
-          </div>
         </>
       ) : (
         <p className="detail-subtitle">Hover or click a track to start a preview.</p>
@@ -2201,14 +2180,7 @@ useEffect(() => {
             <span className={`mini-toggle-glyph ${isAudioPlaying ? "pause" : "play"}`} />
           </button>
         </>
-      ) : (
-        <div className="now-playing-mini idle">
-          <div className="now-playing-mini-copy">
-            <strong>Nothing yet</strong>
-            <div className="detail-subtitle">Tap a track to preview</div>
-          </div>
-        </div>
-      )}
+      ) : null}
     </div>
   </div>
 </aside>

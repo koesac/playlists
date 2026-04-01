@@ -78,10 +78,15 @@ function normalizeArtworkUrl(url = "") {
   const value = String(url || "").trim();
   if (!value) return null;
   if (value.startsWith("//")) return `https:${value}`;
-  return value.replace(/(\d{2,4})x(\d{2,4})(bb)?/g, (_m, w, h, suffix = "") => {
-    const tag = suffix || (value.includes("bb.") ? "bb" : "");
-    return `600x600${tag}`;
-  });
+
+  // Only upscale Apple/iTunes artwork. Last.fm and others might not support 600x600 via simple replacement.
+  if (value.includes("mzstatic.com") || value.includes("itunes.apple.com")) {
+    return value.replace(/\b(\d{2,4})x(\d{2,4})(bb)?\b/g, (_m, _w, _h, suffix = "") => {
+      const tag = suffix || (value.includes("bb.") ? "bb" : "");
+      return `600x600${tag}`;
+    });
+  }
+  return value;
 }
 
 function coverArtArchiveUrl(releaseId, size = 250) {
@@ -98,7 +103,7 @@ function extractYear(...values) {
     if (value == null) continue;
     const text = String(value).trim();
     if (!text) continue;
-    const match = text.match(/(19|20)\d{2}/);
+    const match = text.match(/\b(19|20)\d{2}\b/);
     if (match) return Number(match[0]);
   }
   return null;
@@ -162,15 +167,15 @@ function normalizeTitleForMatch(title = "") {
   return String(title || "")
     .toLowerCase()
     .replace(/\[[^\]]*\]|\([^)]*\)/g, " ")
-    .replace(/(feat\.?|ft\.?|featuring).*$/i, " ")
-    .replace(/(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|karaoke|demo|session|radio edit|extended|club mix|dub|mono|stereo)/gi, " ")
+    .replace(/\b(feat\.?|ft\.?|featuring)\b.*$/i, " ")
+    .replace(/\b(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|karaoke|demo|session|radio edit|extended|club mix|dub|mono|stereo)\b/gi, " ")
     .replace(/[-–—:/]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function isVariantTitle(title = "") {
-  return /(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|karaoke|demo|session|radio edit|extended|club mix|dub|mono|stereo)/i.test(String(title || ""));
+  return /\b(remaster(?:ed)?|remix|mix|edit|version|live|acoustic|instrumental|karaoke|demo|session|radio edit|extended|club mix|dub|mono|stereo)\b/i.test(String(title || ""));
 }
 
 function scoreAppleTrackHit(hit, track = {}) {
@@ -473,7 +478,16 @@ async function appleSearchTrack(track) {
 async function resolveTrackPreview(track, options = {}) {
   const context = options.context || "preview";
   const startedAt = Date.now();
-  const hit = await appleSearchTrack(track);
+  let hit = await appleSearchTrack(track);
+
+  // Fallback to MusicBrainz for artwork if Apple failed
+  let mbTrack = null;
+  if (!hit) {
+    const artist = track.artist || track.artists?.[0] || "";
+    const title = track.title || "";
+    const mbResults = await searchMusicBrainzTracks(`artist:"${artist}" AND recording:"${title}"`, 1);
+    mbTrack = mbResults[0];
+  }
 
   previewLog("attach-apple-preview-result", {
     context,
@@ -482,20 +496,21 @@ async function resolveTrackPreview(track, options = {}) {
     album: track.album || "",
     matched: Boolean(hit),
     hasPreview: Boolean(hit?.previewUrl),
+    mbMatched: Boolean(mbTrack),
     durationMs: Date.now() - startedAt,
     chosen: hit ? {
       artistName: hit.artistName || "",
       trackName: hit.trackName || "",
       collectionName: hit.collectionName || ""
-    } : null
+    } : (mbTrack ? { mbMatched: true } : null)
   });
 
   if (!hit) {
     return {
       previewUrl: "",
-      artworkUrl: track.artworkUrl || "",
-      durationMs: track.durationMs || null,
-      providerRef: null
+      artworkUrl: track.artworkUrl || mbTrack?.artworkUrl || "",
+      durationMs: track.durationMs || mbTrack?.durationMs || null,
+      providerRef: mbTrack?.providerRefs?.[0] || null
     };
   }
 
@@ -509,11 +524,10 @@ async function resolveTrackPreview(track, options = {}) {
 
 async function attachApplePreview(track, options = {}) {
   const preview = await resolveTrackPreview(track, options);
-  if (!preview.previewUrl) return track;
 
   return {
     ...track,
-    previewUrl: preview.previewUrl,
+    previewUrl: preview.previewUrl || track.previewUrl || "",
     artworkUrl: normalizeArtworkUrl(track.artworkUrl || preview.artworkUrl || "") || null,
     durationMs: track.durationMs || preview.durationMs || null,
     providerRefs: [
@@ -524,7 +538,20 @@ async function attachApplePreview(track, options = {}) {
 }
 
 async function hydrateSearchResults(tracks) {
-  return tracks || [];
+  if (!tracks) return [];
+
+  // Hydrate tracks missing artwork using Apple Music as a fallback.
+  return Promise.all((tracks || []).map(async (track) => {
+    if (track.artworkUrl) return track;
+    const hit = await appleSearchTrack(track);
+    if (hit) {
+      return {
+        ...track,
+        artworkUrl: normalizeArtworkUrl(hit.artworkUrl100 || hit.artworkUrl60 || "") || ""
+      };
+    }
+    return track;
+  }));
 }
 
 async function getArtistDetail(name) {
