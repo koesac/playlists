@@ -652,7 +652,7 @@ function FlowApp() {
 const isTouchDeviceRef = useRef(
   typeof window !== "undefined" && window.matchMedia("(hover: none)").matches
 );
-  const { screenToFlowPosition, setCenter, getViewport, setViewport } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getViewport, setViewport, fitView } = useReactFlow();
 
   const playlistIds = useMemo(() => playlist.map((item) => item.id), [playlist]);
   const committedCanvasEntityIds = useMemo(() => new Set(
@@ -936,15 +936,19 @@ const handleMiniPlayToggle = (event) => {
       setActivePreviewId("");
       setAudioSrc("");
       setPreviewCache(saved.previewCache || {});
-      if (saved.viewport) {
-        requestAnimationFrame(() => {
-          setViewport(saved.viewport, { duration: 0 });
-        });
-      }
+      setDraftTitle(saved.draftTitle || "Untitled Studio");
+      if (saved.currentDraftId) setCurrentDraftId(saved.currentDraftId);
       seeded.current = true;
+
+      // After nodes are rendered, fit the view to show all restored nodes
+      // Use setTimeout to ensure ReactFlow has fully rendered the nodes
+      setTimeout(() => {
+        fitView({ padding: 0.18, duration: 300 });
+      }, 100);
     } catch {
     }
-  }, [setNodes, setEdges, setViewport]);
+  }, [setNodes, setEdges, fitView]);
+
 
   const togglePlaylist = useCallback((entity) => {
     if (!entity || entity.kind !== "track") return;
@@ -969,13 +973,14 @@ const handleMiniPlayToggle = (event) => {
       return {
         ...node,
         data: {
-          entity: nextEntityMap[node.id],
+          // Preserve existing entity from restored state if not found in map
+          entity: nextEntityMap[node.id] || node.data?.entity,
           inPlaylist: nextPlaylistIds.includes(node.id),
           isPlaying: nextActivePreviewId === node.id,
           onTogglePlaylist: togglePlaylist
         }
       };
-    }).filter((node) => String(node.id).startsWith("ghost:") || node.data.entity);
+    }).filter((node) => String(node.id).startsWith("ghost:") || node.data?.entity);
   }, [activePreviewId, togglePlaylist]);
 
   useEffect(() => {
@@ -2117,17 +2122,6 @@ useEffect(() => {
                   ))}
                 </div>
               ) : null}
-
-              {spotlightTrackEntity.kind === "track" && spotlightTrackEntity.details?.lines?.length ? (
-                <div className="detail-lines compact">
-                  {spotlightTrackEntity.details.lines
-                    .slice(0, 1)
-                    .filter(Boolean)
-                    .map((line, index) => (
-                      <p key={`${spotlightTrackEntity.id}:spotlight:${index}`}>{line}</p>
-                    ))}
-                </div>
-              ) : null}
             </div>
           </div>
         </>
@@ -2315,15 +2309,16 @@ useEffect(() => {
               <div className="drawer-list compact-drawer">
                 {playlist.length === 0 ? <div className="empty-drawer">No tracks yet.</div> : null}
                 {playlist.map((track) => (
-                  <div key={track.id} className="drawer-track">
+                  <div key={track.id} className="drawer-track" onClick={() => zoomToNode(track.id)}>
                     <img className="drawer-artwork" src={artworkForEntity(track)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(track); }} />
                     <div className="drawer-track-info">
                       <strong>{track.label}</strong>
                       <div>{track.subtitle}</div>
                     </div>
                     <div className="drawer-track-controls">
-                      <button className="ui-button secondary small" onClick={() => focusEntity(track.id)} title="Focus on canvas">Focus</button>
-                      <button className="ui-button small" onClick={() => togglePlaylist(track)} title="Remove from playlist">Remove</button>
+                      <button className="icon-button remove-track-button" onClick={(e) => { e.stopPropagation(); togglePlaylist(track); }} title="Remove from playlist">
+                        <TrashIcon />
+                      </button>
                     </div>
                   </div>
                 ))}
