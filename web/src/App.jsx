@@ -1067,10 +1067,6 @@ const handleMiniPlayToggle = (event) => {
 useEffect(() => {
     const activateAudio = () => {
       userActivatedRef.current = true;
-      console.debug("[audio-debug] user activation captured", {
-        activePreviewId,
-        audioSrc
-      });
     };
     document.addEventListener("pointerdown", activateAudio, { passive: true });
     document.addEventListener("keydown", activateAudio);
@@ -1078,7 +1074,13 @@ useEffect(() => {
       document.removeEventListener("pointerdown", activateAudio);
       document.removeEventListener("keydown", activateAudio);
     };
-  }, [activePreviewId, audioSrc]);
+  }, []);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.volume = 1;
+  }, []);
 
   useEffect(() => {
     const el = audioRef.current;
