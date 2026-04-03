@@ -252,7 +252,12 @@ function normalizeTrackEntity(track, detail = null) {
     kind: "track",
     label: track.title,
     subtitle: [track.artist, track.album].filter(Boolean).join(" · "),
-    meta: [track.album ? "Album" : "", tags[0] || ""].filter(Boolean).slice(0, 3),
+    meta: [
+      (detail?.track?.year || track.year) ? String(detail?.track?.year || track.year) : null,
+      detail?.popularity?.listeners ? `${formatCompactNumber(detail.popularity.listeners)} listeners` : null,
+      detail?.popularity?.playcount ? `${formatCompactNumber(detail.popularity.playcount)} plays` : null,
+      tags[0] || null,
+    ].filter(Boolean).slice(0, 3),
     previewUrl: track.previewUrl || detail?.track?.previewUrl || "",
     artworkUrl: track.artworkUrl || detail?.track?.artworkUrl || "",
     year: track.year || detail?.track?.year || detail?.year || null,
@@ -260,9 +265,12 @@ function normalizeTrackEntity(track, detail = null) {
     raw: { ...track, detail },
     details: {
       lines: [
-        [track.artist, track.album].filter(Boolean).join(" · "),
-        detail?.popularity?.listeners ? `Listeners ${Number(detail.popularity.listeners).toLocaleString()}` : "",
-        detail?.popularity?.playcount ? `Playcount ${Number(detail.popularity.playcount).toLocaleString()}` : ""
+        detail?.popularity?.playcount
+          ? `${formatCompactNumber(detail.popularity.playcount)} plays`
+          : null,
+        detail?.track?.duration
+          ? `${Math.floor(detail.track.duration / 60)}:${String(detail.track.duration % 60).padStart(2, '0')}`
+          : null,
       ].filter(Boolean)
     },
     links: uniqBy(links, (item) => `${item.kind}:${item.id}:${item.relation}`),
@@ -297,7 +305,7 @@ function normalizeArtistEntity(artist, detail = null) {
     kind: "artist",
     label: artist.name,
     subtitle: [artist.country || "", artist.area || ""].filter(Boolean).join(" · ") || "Artist",
-    meta: [artist.disambiguation || "", tags[0] || "", detail?.artist?.listeners ? `Listeners ${Number(detail.artist.listeners).toLocaleString()}` : ""].filter(Boolean).slice(0, 3),
+    meta: [artist.disambiguation || "", tags[0] || "", detail?.artist?.listeners ? `${formatCompactNumber(detail.artist.listeners)} listeners` : ""].filter(Boolean).slice(0, 3),
     artworkUrl: artist.artworkUrl || detail?.artist?.artworkUrl || "",
     raw: { ...artist, detail },
     details: { lines: [stripHtml(detail?.artist?.bio || "") || "Open this artist to explore tracks, albums, and genres."] },
@@ -320,7 +328,7 @@ function normalizeAlbumEntity(detail, fallbackArtist = "", fallbackAlbum = "") {
     kind: "album",
     label: album,
     subtitle: artist || "Album",
-    meta: [detail?.album?.listeners ? `Listeners ${Number(detail.album.listeners).toLocaleString()}` : "", detail?.album?.playcount ? `Playcount ${Number(detail.album.playcount).toLocaleString()}` : "", tags[0] || ""].filter(Boolean).slice(0, 3),
+    meta: [detail?.album?.listeners ? `${formatCompactNumber(detail.album.listeners)} listeners` : "", detail?.album?.playcount ? `${formatCompactNumber(detail.album.playcount)} plays` : "", tags[0] || ""].filter(Boolean).slice(0, 3),
     raw: detail,
     artworkUrl: detail?.album?.artworkUrl || "",
     details: { lines: [stripHtml(detail?.album?.wiki || "") || "Album detail loaded from backend album endpoint."] },
@@ -471,14 +479,14 @@ function linkCanonicalKey(link, sourceEntity = null) {
 }
 
 function formatArtistMeta(artist) {
-  return [artist.disambiguation || "", artist.country || artist.area || "", artist.listeners ? `Listeners ${Number(artist.listeners).toLocaleString()}` : ""]
+  return [artist.disambiguation || "", artist.country || artist.area || "", artist.listeners ? `${formatCompactNumber(artist.listeners)} listeners` : ""]
     .filter(Boolean)
     .slice(0, 2)
     .join(" · ");
 }
 
 function formatTrackMeta(track) {
-  return [track.album || "", track.previewUrl ? "Preview" : "", track.listeners ? `Listeners ${Number(track.listeners).toLocaleString()}` : ""]
+  return [track.album || "", track.previewUrl ? "Preview" : "", track.listeners ? `${formatCompactNumber(track.listeners)} listeners` : ""]
     .filter(Boolean)
     .slice(0, 2)
     .join(" · ");
@@ -541,7 +549,14 @@ function GhostNode({ data }) {
       {(data.rank || simPct || pop) && (
         <div className="ghost-meta">
           {data.rank && <span className="ghost-badge rank">#{data.rank}</span>}
-          {simPct && <span className="ghost-badge sim">{simPct}%</span>}
+          {data.similarity > 0 && (
+            <div className="ghost-similarity-bar">
+              <div
+                className="ghost-similarity-bar-fill"
+                style={{ width: `${Math.max(8, Math.round(data.similarity * 100))}%` }}
+              />
+            </div>
+          )}
           {pop && <span className="ghost-badge pop">{pop}</span>}
         </div>
       )}
@@ -2481,33 +2496,28 @@ useEffect(() => {
             <div className="detail-scroll-area">
               {selectedEntity ? (
                 <>
-                  {selectedEntity.kind !== "track" ? (
-                    <div className={`detail-card kind-${selectedEntity.kind}`} style={{ "--accent": entityColor(selectedEntity.kind) }}>
-                      <div className="detail-topline">
-                        <span className="detail-kind">{selectedEntity.kind}</span>
-                        {playlistIds.includes(selectedEntity.id) ? <span className="detail-star">★</span> : null}
-                      </div>
-                      <div className="detail-hero">
-                        <img className="detail-artwork" src={artworkForEntity(selectedEntity)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(selectedEntity); }} />
-                        <div>
-                          <h2>{selectedEntity.label}</h2>
-                          <p className="detail-subtitle">{selectedEntity.subtitle}</p>
-                          <div className="chip-row compact">
-                            {(selectedEntity.meta || []).map((item) => <span key={item} className="chip">{item}</span>)}
-                          </div>
+                  <div className={`detail-card kind-${selectedEntity.kind}`} style={{ "--accent": entityColor(selectedEntity.kind) }}>
+                    <div className="detail-topline">
+                      <span className="detail-kind">{selectedEntity.kind}</span>
+                      {playlistIds.includes(selectedEntity.id) ? <span className="detail-star">★</span> : null}
+                    </div>
+                    <div className="detail-hero">
+                      <img className="detail-artwork" src={artworkForEntity(selectedEntity)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(selectedEntity); }} />
+                      <div>
+                        <h2>{selectedEntity.label}</h2>
+                        <p className="detail-subtitle">{selectedEntity.subtitle}</p>
+                        <div className="chip-row compact">
+                          {(selectedEntity.meta || []).map((item) => <span key={item} className="chip">{item}</span>)}
+                          {(selectedEntity.details?.lines || []).filter(Boolean).map((line, index) => <span key={`${selectedEntity.id}:${index}`} className="chip">{line}</span>)}
                         </div>
                       </div>
-                      <div className="detail-lines compact">
-                        {(selectedEntity.details?.lines || []).filter(Boolean).map((line, index) => <p key={`${selectedEntity.id}:${index}`}>{line}</p>)}
-                      </div>
-                      <div className="detail-actions compact">
-                        <button className="ui-button secondary" onClick={() => revealGhosts(selectedEntity.id)}>Links</button>
-                        <button className="ui-button small delete-entity-button" onClick={() => deleteEntity(selectedEntity.id)} title="Delete from canvas">
-                          <TrashIcon />
-                        </button>
-                      </div>
                     </div>
-                  ) : null}
+                    <div className="detail-actions compact">
+                      <button className="ui-button small delete-entity-button" onClick={() => deleteEntity(selectedEntity.id)} title="Delete from canvas">
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </div>
 
                   <div className="detail-card secondary-card slim-section">
                     <div className="link-list compact-list">
@@ -2525,11 +2535,50 @@ useEffect(() => {
                           <div key={group.label} className="link-group">
                             <div className="link-group-header">{group.label}</div>
                             {group.links.map(link => (
-                              <button key={selectedEntity.id + link.id + link.relation} className={`link-pill link-${link.kind} ${findCanvasNodeForLink(link, selectedEntity.id) ? 'opened' : 'pending'}`} style={{ '--accent': `#${ghostAccentColor(link.relation)}` }} onClick={() => openLink(selectedEntity.id, link)}>
-                                <span>{link.relation}</span>
-                                <strong>{link.label}</strong>
-                                {link.similarity > 0 && <em>{Math.round(link.similarity * 100)}%</em>}
-                                {link.rank > 0 && <em>#{link.rank}</em>}
+                              <button
+                                key={selectedEntity.id + link.id + link.relation}
+                                className={`detail-link-row link-${link.kind} relation-${link.relation} ${findCanvasNodeForLink(link, selectedEntity.id) ? 'opened' : 'pending'}`}
+                                onClick={() => openLink(selectedEntity.id, link)}
+                              >
+                                <div className="detail-link-main">
+                                  <strong className="detail-link-title">
+                                    {link.payload?.title || link.label?.split('\n')[0] || link.label}
+                                  </strong>
+
+                                  {(link.payload?.artist || link.artist || link.payload?.album || link.album) && (
+                                    <div className="detail-link-subline">
+                                      <span className="detail-link-artist">
+                                        {link.payload?.artist || link.artist}
+                                      </span>
+                                      {(link.payload?.album || link.album) && (
+                                        <>
+                                          <span className="detail-link-sep">/</span>
+                                          <span className="detail-link-album">
+                                            {link.payload?.album || link.album}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {link.similarity > 0 && (
+                                    <div className="detail-link-similarity">
+                                      <div
+                                        className="detail-link-similarity-bar"
+                                        style={{ width: `${Math.max(8, Math.round(link.similarity * 100))}%` }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="detail-link-meta">
+                                  {link.rank ? <span className="detail-link-rank">#{link.rank}</span> : null}
+                                  {(link.payload?.listeners || link.listeners) ? (
+                                    <span className="detail-link-popularity">
+                                      {formatCompactNumber(link.payload?.listeners || link.listeners)}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </button>
                             ))}
                           </div>
