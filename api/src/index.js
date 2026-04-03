@@ -3,16 +3,21 @@ const cors = require("cors");
 const morgan = require("morgan");
 const crypto = require("crypto");
 
-const { listDrafts, getDraft, saveDraft, deleteDraft } = require("./db");
+const { listDrafts, getDraft, saveDraft, deleteDraft, upsertTrack, getTrack, listTracks, deleteTrack, getGraphData } = require("./db");
 const {
   searchMusicBrainzTracks,
   searchMusicBrainzArtists,
+  searchDeezerTracks,
+  searchDeezerArtists,
+  searchItunesTracks,
   hydrateSearchResults,
   resolveTrackPreview,
   getTrackDetail,
   getArtistDetail,
   getAlbumDetail,
-  getGenreDetail
+  getGenreDetail,
+  getBPM,
+  computeAndStoreEdgesForTrack
 } = require("./providers");
 
 const app = express();
@@ -29,15 +34,26 @@ app.get("/health", (req, res) => {
 app.get("/api/search", async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
-    if (!q) return res.json({ tracks: [], artists: [] });
+    if (!q) return res.json({
+      deezer: { tracks: [], artists: [] },
+      itunes: { tracks: [] },
+      tracks: [],
+      artists: []
+    });
 
-    const [mbTracks, mbArtists] = await Promise.all([
-      searchMusicBrainzTracks(q, 12),
-      searchMusicBrainzArtists(q, 8)
+    const [dzTracks, dzArtists, itunesTracks] = await Promise.all([
+      searchDeezerTracks(q, 12),
+      searchDeezerArtists(q, 8),
+      searchItunesTracks(q, 12),
     ]);
 
-    const tracks = await hydrateSearchResults(mbTracks);
-    res.json({ tracks, artists: mbArtists });
+    res.json({
+      deezer:  { tracks: dzTracks,     artists: dzArtists },
+      itunes:  { tracks: itunesTracks, artists: [] },
+      // keep legacy flat shape so nothing else breaks while you migrate:
+      tracks:  dzTracks,
+      artists: dzArtists,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -152,6 +168,61 @@ app.post("/api/drafts", (req, res) => {
 app.delete("/api/drafts/:id", (req, res) => {
   deleteDraft(req.params.id);
   res.json({ ok: true });
+});
+
+// --- Graph data endpoints ---
+app.get("/api/graph-data", (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 1000);
+    const graphData = getGraphData(limit);
+    res.json(graphData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/tracks", (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 100);
+    const tracks = listTracks(limit);
+    res.json({ tracks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/tracks", async (req, res) => {
+  try {
+    const { id, title, artist, bpm, genre, playcount, data } = req.body || {};
+    if (!id || !title || !artist) {
+      return res.status(400).json({ error: "id, title, and artist are required" });
+    }
+
+    // Fetch BPM if not provided
+    let finalBpm = bpm;
+    if (!finalBpm) {
+      finalBpm = await getBPM(artist, title);
+    }
+
+    const track = { id, title, artist, bpm: finalBpm, genre, playcount, data };
+    upsertTrack(track);
+
+    // Compute and store edges for this track
+    await computeAndStoreEdgesForTrack(track);
+
+    res.json({ ok: true, track: { id, title, artist, bpm: finalBpm, genre, playcount } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/tracks/:id", (req, res) => {
+  try {
+    deleteTrack(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(port, () => {

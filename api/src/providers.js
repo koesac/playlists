@@ -3,6 +3,7 @@ const Redis = require("ioredis");
 const redis = new Redis(process.env.REDIS_URL || "redis://redis:6379");
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
+const GETSONGBPM_API_KEY = process.env.GETSONGBPM_API_KEY;
 const LASTFM_NO_IMAGE_HASH = "2a96cbd8b46e442fc41c2b86b821562f";
 const MUSICBRAINZ_USER_AGENT =
   process.env.MUSICBRAINZ_USER_AGENT || "AIPlaylistStudio/0.1.0 (dev@example.com)";
@@ -759,10 +760,149 @@ async function getGenreDetail(tag) {
   };
 }
 
+// --- Deezer search ---
+async function searchDeezerTracks(q, limit = 12) {
+  const key = `dz:search:tracks:${q}:${limit}`;
+  return cacheJson(key, 1800, async () => {
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=${limit}&order=RANKING`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.data || []).map(t => ({
+      type: 'track',
+      trackKey: `dz-${t.id}`,
+      title: t.title,
+      artist: t.artist?.name,
+      artists: [t.artist?.name].filter(Boolean),
+      album: t.album?.title,
+      artworkUrl: t.album?.cover_medium || null,
+      previewUrl: t.preview || null,
+      rank: t.rank || 0,
+      providerRefs: [{ source: 'deezer', id: String(t.id), url: t.link }],
+    }));
+  });
+}
+
+async function searchDeezerArtists(q, limit = 8) {
+  const key = `dz:search:artists:${q}:${limit}`;
+  return cacheJson(key, 1800, async () => {
+    const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(q)}&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.data || []).map(a => ({
+      type: 'artist',
+      id: `dz-artist-${a.id}`,
+      name: a.name,
+      artworkUrl: a.picture_medium || null,
+      providerRefs: [{ source: 'deezer', id: String(a.id), url: a.link }],
+    }));
+  });
+}
+
+async function searchItunesTracks(q, limit = 12) {
+  const key = `itunes:search:tracks:${q}:${limit}`;
+  return cacheJson(key, 1800, async () => {
+    const url = new URL('https://itunes.apple.com/search');
+    url.searchParams.set('term', q);
+    url.searchParams.set('media', 'music');
+    url.searchParams.set('entity', 'song');
+    url.searchParams.set('limit', String(limit));
+    const json = await appleFetchJson(url.toString(), { q });
+    if (!json) return [];
+    return (json.results || []).map(t => ({
+      type: 'track',
+      trackKey: `itunes-${t.trackId}`,
+      title: t.trackName,
+      artist: t.artistName,
+      artists: [t.artistName].filter(Boolean),
+      album: t.collectionName,
+      artworkUrl: normalizeArtworkUrl(t.artworkUrl100),
+      previewUrl: t.previewUrl || null,
+      providerRefs: [{ source: 'apple', id: String(t.trackId), url: t.trackViewUrl }],
+    }));
+  });
+}
+
+// --- GetSongBPM integration ---
+async function getBPM(artist, title) {
+  const key = `bpm:${artist.toLowerCase()}:${title.toLowerCase()}`;
+  return cacheJson(key, 86400 * 30, async () => { // Cache for 30 days
+    if (!GETSONGBPM_API_KEY) return null;
+    const url = `https://api.getsongbpm.com/v2/search?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json = await res.json();
+      // GetSongBPM returns results with tempo information
+      const result = json?.result?.[0];
+      if (result && result.bpm) {
+        return Math.round(result.bpm);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+// --- Similarity computation for graph edges ---
+function computeSimilarity(trackA, trackB) {
+  let weight = 0;
+
+  // BPM similarity (strong signal)
+  if (trackA.bpm && trackB.bpm) {
+    const bpmDiff = Math.abs(trackA.bpm - trackB.bpm);
+    if (bpmDiff === 0) weight += 0.4;
+    else if (bpmDiff <= 5) weight += 0.3;
+    else if (bpmDiff <= 15) weight += 0.15;
+    else if (bpmDiff <= 30) weight += 0.05;
+  }
+
+  // Genre similarity
+  if (trackA.genre && trackB.genre && trackA.genre.toLowerCase() === trackB.genre.toLowerCase()) {
+    weight += 0.3;
+  }
+
+  // Artist similarity (bonus for same artist)
+  if (trackA.artist && trackB.artist && trackA.artist.toLowerCase() === trackB.artist.toLowerCase()) {
+    weight += 0.2;
+  }
+
+  return Math.min(weight, 1.0);
+}
+
+async function computeAndStoreEdgesForTrack(track) {
+  const { listTracks, upsertEdgesBulk } = require('./db');
+  const allTracks = listTracks(10000);
+  const edges = [];
+
+  for (const other of allTracks) {
+    if (other.id === track.id) continue;
+    const weight = computeSimilarity(track, other);
+    if (weight > 0.1) { // Only store meaningful connections
+      edges.push({ sourceId: track.id, targetId: other.id, weight });
+    }
+  }
+
+  if (edges.length > 0) {
+    upsertEdgesBulk(edges);
+  }
+
+  return edges;
+}
+
 module.exports = {
   redis,
   searchMusicBrainzTracks,
   searchMusicBrainzArtists,
+  searchDeezerTracks,
+  searchDeezerArtists,
+  searchItunesTracks,
+  getBPM,
+  computeSimilarity,
+  computeAndStoreEdgesForTrack,
   hydrateSearchResults,
   resolveTrackPreview,
   getTrackDetail,

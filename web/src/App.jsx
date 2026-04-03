@@ -128,12 +128,55 @@ function artistSearchScore(query, artist) {
   const q = normalizeSearchText(query);
   const name = normalizeSearchText(artist?.name);
   if (!q || !name) return 0;
-  if (name === q) return 120;
-  if (name.startsWith(`${q} `) || name.startsWith(q)) return 100;
-  if (name.includes(q)) return 82;
+  if (name === q) return 200;
+  if (name.startsWith(q)) return 160;
+  if (q.startsWith(name)) return 130; // "beatles hey jude" — query begins with artist
+  if (name.includes(q)) return 90;
   const qWords = q.split(/\s+/).filter(Boolean);
-  const matchWords = qWords.filter((word) => name.includes(word)).length;
-  return matchWords ? 40 + (matchWords * 12) : 0;
+  const hits = qWords.filter(w => name.includes(w));
+  if (!hits.length) return 0;
+  // Penalise if it looks like a composite query (not all words match artist name)
+  return hits.length === qWords.length
+    ? 50 + hits.length * 12
+    : 20 + hits.length * 8;
+}
+
+function scoreTrack(track, query) {
+  const q = normalizeSearchText(query);
+  const words = q.split(/\s+/).filter(Boolean);
+  const title = normalizePreviewMatchText(track.title || '');
+  const artist = normalizeSearchText(track.artist || '');
+  const combined = `${artist} ${title}`;
+  const combinedAlt = `${title} ${artist}`;
+  let score = 0;
+
+  // Title matches
+  if (title === q)              score += 200;
+  else if (title.startsWith(q)) score += 150;
+  else if (title.includes(q))   score += 85;
+
+  // Artist matches
+  if (artist === q)               score += 160;
+  else if (artist.startsWith(q))  score += 110;
+  else if (artist.includes(q))    score += 55;
+
+  // Composite "artist title" or "title artist" matches
+  if (combined === q || combinedAlt === q)             score += 260;
+  else if (combined.startsWith(q) || combinedAlt.startsWith(q)) score += 190;
+  else if (combined.includes(q) || combinedAlt.includes(q))     score += 110;
+
+  // All query words appear somewhere in artist+title (word-soup like "lucky punk")
+  if (words.length > 1) {
+    const allHit = words.every(w => combined.includes(w));
+    if (allHit) score += 50 + words.length * 12;
+    else {
+      const hits = words.filter(w => combined.includes(w)).length;
+      score += hits * 14;
+    }
+  }
+
+  if (track.previewUrl) score += 20; // slight boost for playable tracks
+  return score;
 }
 
 function distance(a, b) {
@@ -246,6 +289,15 @@ function normalizeTrackEntity(track, detail = null) {
   tags.slice(0, 6).forEach((tag) => links.push({ id: genreNodeId(tag), relation: "genre", label: tag, kind: "genre", tag }));
   [...(detail?.similar || [])].sort((a, b) => (b.similarity || 0) - (a.similarity || 0)).slice(0, 10).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "related-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item, similarity: item.similarity || 0 }));
   (detail?.artistTracks || []).slice(0, 8).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "artist-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item }));
+
+  // Normalise listener counts to a 0–1 relative scale within this track's artist-track links
+  const artistTrackLinks = links.filter(l => l.relation === "artist-track");
+  const maxArtistTrackListeners = Math.max(1, ...artistTrackLinks.map(l => l.payload?.listeners || 0));
+  artistTrackLinks.forEach(l => {
+    const raw = l.payload?.listeners || 0;
+    l.relativePopularity = raw > 0 ? raw / maxArtistTrackListeners : 0;
+  });
+
   (detail?.albumTracks || []).slice(0, 12).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "album-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item }));
   return {
     id,
@@ -265,9 +317,6 @@ function normalizeTrackEntity(track, detail = null) {
     raw: { ...track, detail },
     details: {
       lines: [
-        detail?.popularity?.playcount
-          ? `${formatCompactNumber(detail.popularity.playcount)} plays`
-          : null,
         detail?.track?.duration
           ? `${Math.floor(detail.track.duration / 60)}:${String(detail.track.duration % 60).padStart(2, '0')}`
           : null,
@@ -340,7 +389,7 @@ function normalizeAlbumEntity(detail, fallbackArtist = "", fallbackAlbum = "") {
     meta: [detail?.album?.listeners ? `${formatCompactNumber(detail.album.listeners)} listeners` : "", detail?.album?.playcount ? `${formatCompactNumber(detail.album.playcount)} plays` : "", tags[0] || ""].filter(Boolean).slice(0, 3),
     raw: detail,
     artworkUrl: detail?.album?.artworkUrl || "",
-    details: { lines: [stripHtml(detail?.album?.wiki || "") || "Album detail loaded from backend album endpoint."] },
+    details: { lines: [stripHtml(detail?.album?.wiki)].filter(Boolean) },
     links: uniqBy(links, (item) => `${item.kind}:${item.id}:${item.relation}`),
     loaded: true
   };
@@ -360,7 +409,7 @@ function normalizeGenreEntity(detail, fallbackTag = "") {
     meta: [detail?.tracks?.length ? `${detail.tracks.length} tracks` : "", detail?.artists?.length ? `${detail.artists.length} artists` : "", detail?.albums?.length ? `${detail.albums.length} albums` : ""].filter(Boolean).slice(0, 3),
     raw: detail,
     artworkUrl: detail?.genre?.artworkUrl || "",
-    details: { lines: ["Genre detail loaded from backend genre endpoint."] },
+    details: { lines: [stripHtml(detail?.genre?.description)].filter(Boolean) },
     links: uniqBy(links, (item) => `${item.kind}:${item.id}:${item.relation}`),
     loaded: true
   };
@@ -495,10 +544,13 @@ function formatArtistMeta(artist) {
 }
 
 function formatTrackMeta(track) {
-  return [track.album || "", track.previewUrl ? "Preview" : "", track.listeners ? `${formatCompactNumber(track.listeners)} listeners` : ""]
-    .filter(Boolean)
-    .slice(0, 2)
-    .join(" · ");
+  const duration = track.durationMs
+    ? `${Math.floor(track.durationMs / 60000)}:${String(Math.floor((track.durationMs % 60000) / 1000)).padStart(2, '0')}`
+    : null;
+  return [
+    duration,
+    track.listeners ? `${formatCompactNumber(track.listeners)} listeners` : null,
+  ].filter(Boolean).slice(0, 2).join(" · ");
 }
 
 function formatCompactNumber(value) {
@@ -556,10 +608,15 @@ function GhostNode({ data }) {
     : Math.max(8, Math.round(relPop * 100));
   const barClass = simPct !== null ? "ghost-bar sim" : "ghost-bar pop";
 
+  // Use separate title/artist fields instead of the concatenated label
+  const title = (data.kind === "track" && data.trackTitle) ? data.trackTitle : data.label;
+  const artist = data.kind === "track" ? data.trackArtist : null;
+
   return (
     <div className={`ghost-card kind-${data.kind} relation-${data.relation} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""} ${data.isPlaying ? "is-playing" : ""}`} style={{ "--accent": `#${ghostAccentColor(data.relation)}` }}>
       <div className="ghost-kind">{data.relation}</div>
-      <div className="ghost-label">{data.label}</div>
+      <div className="ghost-label">{title}</div>
+      {artist && <div className="ghost-subtitle">{artist}</div>}
       {(data.rank || showBar) && (
         <div className="ghost-meta">
           {data.rank && <span className="ghost-badge rank">#{data.rank}</span>}
@@ -586,7 +643,7 @@ function ResultButton({ item, kind, featured = false, onClick, onHover }) {
   const pseudo = kind === "track"
     ? { kind, label: item.title, artworkUrl: item.artworkUrl, raw: item }
     : { kind, label: item.name, artworkUrl: item.artworkUrl, raw: item };
-  const title = kind === "track" ? `${item.title} · ${item.artist}` : item.name;
+  const title = kind === "track" ? item.title : item.name;
   const meta = kind === "track" ? formatTrackMeta(item) : formatArtistMeta(item);
   return (
     <button
@@ -599,7 +656,13 @@ function ResultButton({ item, kind, featured = false, onClick, onHover }) {
       <div className="result-copy">
         <span>{kind}</span>
         <strong>{title}</strong>
-        {meta ? <em>{meta}</em> : null}
+        {kind === "track" && item.artist && (
+          <em className="result-artist">{item.artist}</em>
+        )}
+        {kind === "track" && item.album && (
+          <em className="result-album">{item.album}</em>
+        )}
+        {meta ? <em className="result-meta">{meta}</em> : null}
       </div>
     </button>
   );
@@ -702,7 +765,10 @@ const STORAGE_KEY = "ai-playlist-studio-state-v1";
 
 function FlowApp() {
   const [query, setQuery] = useState("");
-  const [searchResults, setSearchResults] = useState({ artists: [], tracks: [] });
+  const [searchResults, setSearchResults] = useState({
+    deezer: { artists: [], tracks: [] },
+    itunes: { tracks: [] },
+  });
   const [searching, setSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -728,7 +794,6 @@ function FlowApp() {
   useEffect(() => {
     previewCacheRef.current = previewCache;
   }, [previewCache]);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [drafts, setDrafts] = useState([]);
   const [currentDraftId, setCurrentDraftId] = useState("");
   const [draftTitle, setDraftTitle] = useState("Untitled Studio");
@@ -928,25 +993,35 @@ const isTouchDeviceRef = useRef(
       ].filter(Boolean)
     : [];
   const artistResults = useMemo(() => {
-    return [...(searchResults.artists || [])]
-      .filter((artist) => {
+    return [...(searchResults.deezer.artists)]
+      .filter(artist => {
         const id = artist.id || artistNodeId(artist.name);
-        const key = `artist:${safeId(artist.name)}`;
+        const key = `artist${safeId(artist.name)}`;
         return !blockedRecommendationIds.has(id) && !blockedRecommendationKeys.has(key);
       })
       .sort((a, b) => artistSearchScore(query, b) - artistSearchScore(query, a));
   }, [searchResults, query, blockedRecommendationIds, blockedRecommendationKeys]);
   const topArtistMatch = useMemo(() => artistResults[0] && artistSearchScore(query, artistResults[0]) >= 95 ? artistResults[0] : null, [artistResults, query]);
   const otherArtistResults = useMemo(() => artistResults.filter((artist) => artist !== topArtistMatch).slice(0, 5), [artistResults, topArtistMatch]);
-  const trackResults = useMemo(() => {
-    return (searchResults.tracks || [])
-      .filter((track) => {
-        const id = trackNodeId(track);
-        const key = `track:${trackKey(track.artist, track.title)}`;
-        return !blockedRecommendationIds.has(id) && !blockedRecommendationKeys.has(key);
-      })
-      .slice(0, 6);
+
+  const deezerTrackResults = useMemo(() => {
+    return (searchResults.deezer.tracks).filter(track => {
+      const id = trackNodeId(track);
+      const key = `track${trackKey(track.artist, track.title)}`;
+      return !blockedRecommendationIds.has(id) && !blockedRecommendationKeys.has(key);
+    }).slice(0, 6);
   }, [searchResults, blockedRecommendationIds, blockedRecommendationKeys]);
+
+  const itunesTrackResults = useMemo(() => {
+    return (searchResults.itunes.tracks).filter(track => {
+      const id = trackNodeId(track);
+      const key = `track${trackKey(track.artist, track.title)}`;
+      return !blockedRecommendationIds.has(id) && !blockedRecommendationKeys.has(key);
+    }).slice(0, 6);
+  }, [searchResults, blockedRecommendationIds, blockedRecommendationKeys]);
+
+  // Keep trackResults alias for any other references (mobile path)
+  const trackResults = deezerTrackResults;
 useEffect(() => {
   const el = audioRef.current;
   if (!el) return;
@@ -1017,7 +1092,6 @@ const handleMiniPlayToggle = (event) => {
       if (!inSearchBox && !inPlaylistDrawer) {
         setSearchOpen(false);
         setDraftsOpen(false);
-        setHelpOpen(false);
       }
     };
     document.addEventListener("mousedown", handlePointerDown);
@@ -2020,20 +2094,42 @@ useEffect(() => {
     }
   }, [clearGhosts, entityMap, ensureEdge, ensureNode, loadAlbum, loadArtist, loadGenre, loadTrack, playEntity, positionForLink, findCanvasNodeForLink, zoomToNode]);
 
+  const queryRef = useRef(query);
+  useEffect(() => { queryRef.current = query; }, [query]);
+
   const search = useCallback(async () => {
-    if (!query.trim()) return;
+    const q = queryRef.current.trim();
+    if (!q) return;
     setSearching(true);
     setMessage("");
     try {
-      const data = await api(`/api/search?q=${encodeURIComponent(query)}`);
-      setSearchResults({ artists: data.artists || [], tracks: data.tracks || [] });
+      const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      setSearchResults({
+        deezer: { artists: data.deezer?.artists || [], tracks: data.deezer?.tracks || [] },
+        itunes: { tracks: data.itunes?.tracks || [] },
+      });
       setSearchOpen(true);
     } catch (err) {
       setMessage(err.message);
     } finally {
       setSearching(false);
     }
-  }, [query]);
+  }, []); // stable — no deps
+
+  const searchDebounceRef = useRef(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setSearchResults({
+        deezer: { artists: [], tracks: [] },
+        itunes: { tracks: [] },
+      });
+      return;
+    }
+    clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(search, 280);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [query]); // search() is stable now
 
   useEffect(() => {
     if (!hydrated.current) return;
@@ -2053,56 +2149,137 @@ useEffect(() => {
   }, [loadArtist, loadTrack]);
 
   const previewSearchResult = useCallback((item) => {
-    if (!item?.artist || !item?.title) {
-      console.debug("[audio-debug] previewSearchResult skipped", { item });
-      return;
-    }
+    if (!item?.previewUrl) return;
 
     const previewEntity = normalizeTrackEntity({
       ...item,
-      previewUrl: item.previewUrl || "",
-      artworkUrl: item.artworkUrl || ""
+      previewUrl: item.previewUrl,
+      artworkUrl: item.artworkUrl,
     });
 
-    console.debug("[audio-debug] previewSearchResult", {
-      id: previewEntity.id,
-      title: item.title,
-      artist: item.artist,
-      previewUrl: previewEntity.previewUrl,
-      artworkUrl: previewEntity.artworkUrl
-    });
+    // Cancel any in-progress crossfade and reset volume immediately
+    if (crossfadeTimerRef.current) {
+      cancelAnimationFrame(crossfadeTimerRef.current);
+      crossfadeTimerRef.current = null;
+    }
 
+    // Update UI display instantly
     setNowPlayingOverride(previewEntity);
     setActivePreviewId(previewEntity.id);
 
-    if (previewEntity.previewUrl) {
-      playPreviewUrl(
-        previewEntity.id,
-        previewEntity.previewUrl,
-        "search-result-hover-direct",
-        { nowPlayingEntity: previewEntity }
-      );
-      return;
+    // Drive the audio element directly — bypasses state → useEffect latency entirely
+    const el = audioRef.current;
+    if (el && userActivatedRef.current) {
+      const absoluteUrl = new URL(item.previewUrl, window.location.href).href;
+      el.volume = 1;
+      if (el.currentSrc !== absoluteUrl) {
+        el.pause();
+        el.src = absoluteUrl;
+        lastAppliedAudioSrcRef.current = absoluteUrl; // keep ref in sync so useEffect doesn't re-apply
+        el.load();
+      }
+      el.play().catch(err => console.warn('audio-debug search-hover play failed', err.message));
     }
 
-    const token = hoverPreviewTokenRef.current;
-    warmTrackPreview(
-      {
-        artist: item.artist,
-        title: item.title,
-        album: item.album || ""
-      },
-      previewEntity.id,
-      {
-        autoplay: true,
-        source: "search-result-hover-fetch",
-        requestToken: token,
-        nowPlayingEntity: previewEntity
+    // Sync React audio state so the rest of the system (useEffect, persistence) stays consistent
+    ++playbackRequestRef.current;
+    setAudioSrc(item.previewUrl);
+    setNowPlayingVersion(v => v + 1);
+
+  }, [setNowPlayingOverride, setActivePreviewId, setAudioSrc, setNowPlayingVersion]);
+
+  const previewLinkItem = useCallback((link) => {
+    if (!link || link.kind !== 'track') return;
+    const artist = link.payload?.artist;
+    const title = link.payload?.title || link.label?.split(' — ')[0] || link.label;
+    const album = link.payload?.album;
+    const artworkUrl = link.payload?.artworkUrl;
+    if (!artist || !title) return;
+
+    const cacheKey = `track${trackKey(artist, title)}`;
+    const cachedUrl = previewCache[cacheKey] || link.payload?.previewUrl;
+
+    const nowPlayingEntity = buildPreviewNowPlayingEntity(
+      { artist, title, album, artworkUrl },
+      link.id, cachedUrl, artworkUrl
+    );
+
+    if (cachedUrl) {
+      if (crossfadeTimerRef.current) {
+        cancelAnimationFrame(crossfadeTimerRef.current);
+        crossfadeTimerRef.current = null;
       }
-    ).catch((err) => {
-      console.warn("[audio-debug] previewSearchResult failed", err);
-    });
-  }, [playPreviewUrl, warmTrackPreview]);
+      setNowPlayingOverride(nowPlayingEntity);
+      setActivePreviewId(link.id);
+      const el = audioRef.current;
+      if (el && userActivatedRef.current) {
+        const absoluteUrl = new URL(cachedUrl, window.location.href).href;
+        el.volume = 1;
+        if (el.currentSrc !== absoluteUrl) {
+          el.pause();
+          el.src = absoluteUrl;
+          lastAppliedAudioSrcRef.current = absoluteUrl;
+          el.load();
+          el.play().catch(err =>
+            console.warn('audio-debug detail-link-hover play failed', err.message)
+          );
+        }
+        playbackRequestRef.current++;
+        setAudioSrc(cachedUrl);
+        setNowPlayingVersion(v => v + 1);
+      }
+    } else {
+      const token = ++hoverPreviewTokenRef.current;
+      warmTrackPreview(
+        { artist, title, album, artworkUrl },
+        link.id,
+        { autoplay: true, source: 'detail-link-hover-fetch', requestToken: token, nowPlayingEntity }
+      );
+    }
+  }, [buildPreviewNowPlayingEntity, previewCache, warmTrackPreview,
+      setNowPlayingOverride, setActivePreviewId, setAudioSrc, setNowPlayingVersion]);
+
+  const previewPlaylistItem = useCallback((entity) => {
+    if (!entity || entity.kind !== 'track') return;
+    const artist = entity.raw?.artist || entity.subtitle?.split(' · ')[0];
+    const title = entity.label;
+    const cacheKey = `track${trackKey(artist, title)}`;
+    const cachedUrl = entity.previewUrl || previewCache[cacheKey];
+
+    if (cachedUrl) {
+      if (crossfadeTimerRef.current) {
+        cancelAnimationFrame(crossfadeTimerRef.current);
+        crossfadeTimerRef.current = null;
+      }
+      setNowPlayingOverride(entity);
+      setActivePreviewId(entity.id);
+      const el = audioRef.current;
+      if (el && userActivatedRef.current) {
+        const absoluteUrl = new URL(cachedUrl, window.location.href).href;
+        el.volume = 1;
+        if (el.currentSrc !== absoluteUrl) {
+          el.pause();
+          el.src = absoluteUrl;
+          lastAppliedAudioSrcRef.current = absoluteUrl;
+          el.load();
+          el.play().catch(err =>
+            console.warn('audio-debug playlist-hover play failed', err.message)
+          );
+        }
+        playbackRequestRef.current++;
+        setAudioSrc(cachedUrl);
+        setNowPlayingVersion(v => v + 1);
+      }
+    } else {
+      const token = ++hoverPreviewTokenRef.current;
+      warmTrackPreview(
+        { artist, title, album: entity.raw?.album },
+        entity.id,
+        { autoplay: true, source: 'playlist-hover-fetch', requestToken: token, nowPlayingEntity: entity }
+      );
+    }
+  }, [previewCache, warmTrackPreview,
+      setNowPlayingOverride, setActivePreviewId, setAudioSrc, setNowPlayingVersion]);
 
   useEffect(() => {
     fetchDrafts();
@@ -2135,53 +2312,95 @@ useEffect(() => {
           <div className={`floating-search ${searchOpen ? "open" : "collapsed"}`} ref={searchBoxRef}>
             {searchOpen ? (
               <>
-                <div className="search-bar-shell search-bar-expanded">
-                  <div className="search-input-wrap">
-                    <span className="search-leading-icon"><SearchIcon /></span>
-                    <input
-                      ref={searchInputRef}
-                      className="search-input minimal"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search artists or tracks"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") search();
-                        if (e.key === "Escape") {
-                          setSearchOpen(false);
-                          setHelpOpen(false);
-                        }
-                      }}
-                    />
+                <div className="search-bar-shell">
+                  <div className="search-bar-row">
+                    <div className="search-input-wrap">
+                      <span className="search-leading-icon"><SearchIcon /></span>
+                      <input
+                        ref={searchInputRef}
+                        className="search-input minimal"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search artists or tracks"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") search();
+                          if (e.key === "Escape") setSearchOpen(false);
+                        }}
+                      />
+                      {query && (
+                        <button className="search-clear-btn" onClick={() => setQuery('')} title="Clear search" aria-label="Clear search">
+                          <CloseIcon />
+                        </button>
+                      )}
+                    </div>
+                    <button className="search-go" onClick={search} disabled={searching}>
+                      {searching ? '…' : 'Go'}
+                    </button>
                   </div>
-                  <button className="search-go" onClick={search} disabled={searching}>{searching ? "…" : "Go"}</button>
-                  <IconButton title="Help" onClick={() => setHelpOpen((v) => !v)} active={helpOpen}>?</IconButton>
-                  <IconButton title="Close" onClick={() => { setSearchOpen(false); setHelpOpen(false); }}><CloseIcon /></IconButton>
+                  <div className="search-bar-utility">
+                    <ThemeToggle />
+                  </div>
+                  {!query && !searching && (
+                    <p className="search-empty-hint">
+                      Search for an artist or track to start exploring
+                    </p>
+                  )}
                 </div>
 
-                {helpOpen && (
-                  <div className="help-popover">
-                    <p>Search, open a result, then hover any opened node to reveal links.</p>
-                    <p>Tracks play on hover or click, and double-click adds them to the playlist.</p>
-                  </div>
-                )}
-
-                {(topArtistMatch || otherArtistResults.length > 0 || trackResults.length > 0) && (
+                {(topArtistMatch || otherArtistResults.length > 0 || deezerTrackResults.length > 0 || itunesTrackResults.length > 0) && (
                   <div className="result-flyout">
-                    {topArtistMatch ? <ResultButton item={topArtistMatch} kind="artist" featured onClick={() => selectSearchResult("artist", topArtistMatch)} /> : null}
-                    {otherArtistResults.map((item) => (
-                      <ResultButton key={item.id || item.name} item={item} kind="artist" onClick={() => selectSearchResult("artist", item)} />
-                    ))}
-                    {trackResults.map((item) => (
+                    {/* Artist row — Deezer, shown on both layouts */}
+                    {topArtistMatch && (
                       <ResultButton
-                        key={`${item.artist}:${item.title}`}
-                        item={item}
-                        kind="track"
-                        onClick={() => selectSearchResult("track", item)}
-                        onHover={previewSearchResult}
+                        item={topArtistMatch} kind="artist" featured
+                        onClick={() => selectSearchResult('artist', topArtistMatch)}
+                      />
+                    )}
+                    {otherArtistResults.map(item => (
+                      <ResultButton key={item.id || item.name} item={item} kind="artist"
+                        onClick={() => selectSearchResult('artist', item)}
                       />
                     ))}
+
+                    {/* Track columns — side by side on desktop, Deezer only on mobile */}
+                    {(deezerTrackResults.length > 0 || itunesTrackResults.length > 0) && (
+                      <div className="result-tracks-grid">
+                        <div className="result-column">
+                          <div className="result-column-header">
+                            <span className="source-dot deezer" />Deezer
+                          </div>
+                          {deezerTrackResults.map(item => (
+                            <ResultButton key={item.artist + item.title} item={item} kind="track"
+                              onClick={() => selectSearchResult('track', item)}
+                              onHover={previewSearchResult}
+                            />
+                          ))}
+                          {deezerTrackResults.length === 0 && (
+                            <div className="result-column-empty">No results</div>
+                          )}
+                        </div>
+
+                        <div className="result-column itunes-col">
+                          <div className="result-column-header">
+                            <span className="source-dot itunes" />iTunes
+                          </div>
+                          {itunesTrackResults.map(item => (
+                            <ResultButton key={item.artist + item.title} item={item} kind="track"
+                              onClick={() => selectSearchResult('track', item)}
+                              onHover={previewSearchResult}
+                            />
+                          ))}
+                          {itunesTrackResults.length === 0 && (
+                            <div className="result-column-empty">No results</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+                {(topArtistMatch || otherArtistResults.length > 0 || deezerTrackResults.length > 0 || itunesTrackResults.length > 0) ? null : (!searching && query.trim().length >= 2 && (
+                  <p className="search-empty-hint">No results for "{query}"</p>
+                ))}
               </>
             ) : (
               <div className="collapsed-search-bar">
@@ -2194,9 +2413,6 @@ useEffect(() => {
             {message ? <div className="message-box floating">{message}</div> : null}
           </div>
 
-          <div className="floating-actions right">
-            <ThemeToggle />
-          </div>
 
           <ReactFlow
             nodes={nodes}
@@ -2387,8 +2603,22 @@ useEffect(() => {
             maxZoom={1.8}
             proOptions={{ hideAttribution: true }}
           >
-            <MiniMap pannable zoomable nodeColor={(node) => entityColor(node?.data?.entity?.kind || node?.data?.kind || "track")} />
-            <Controls showInteractive={false} />
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor={(node) => entityColor(node?.data?.entity?.kind || node?.data?.kind || "track")}
+              style={{
+                right: detailOpen ? 434 : 10,
+                transition: 'right 0.3s ease'
+              }}
+            />
+            <Controls
+              showInteractive={false}
+              style={{
+                left: drawerOpen ? 394 : 10,
+                transition: 'left 0.3s ease'
+              }}
+            />
             <Background gap={22} size={1} color="#1f2937" />
           </ReactFlow>
         </section>
@@ -2496,14 +2726,16 @@ useEffect(() => {
                 <span className="detail-kind">Details</span>
               </div>
             ) : null}
-            <button
-              className="icon-button panel-toggle-button"
-              onClick={() => setDetailOpen((open) => !open)}
-              title={detailOpen ? "Collapse details" : "Expand details"}
-              aria-label={detailOpen ? "Collapse details" : "Expand details"}
-            >
-              {detailOpen ? <ChevronIcon direction="right" /> : <DetailsIcon />}
-            </button>
+            <div className="panel-actions">
+              <button
+                className="icon-button panel-toggle-button"
+                onClick={() => setDetailOpen((open) => !open)}
+                title={detailOpen ? "Collapse details" : "Expand details"}
+                aria-label={detailOpen ? "Collapse details" : "Expand details"}
+              >
+                {detailOpen ? <ChevronIcon direction="right" /> : <DetailsIcon />}
+              </button>
+            </div>
           </div>
 
           {detailOpen ? (
@@ -2551,8 +2783,12 @@ useEffect(() => {
                             {group.links.map(link => (
                               <button
                                 key={selectedEntity.id + link.id + link.relation}
-                                className={`detail-link-row link-${link.kind} relation-${link.relation} ${findCanvasNodeForLink(link, selectedEntity.id) ? 'opened' : 'pending'}`}
+                                className={`detail-link-row link-${link.kind} relation-${link.relation} ${
+                                  findCanvasNodeForLink(link, selectedEntity.id) ? 'opened' : 'pending'
+                                } ${activePreviewId === link.id ? 'is-playing' : ''}`}
                                 onClick={() => openLink(selectedEntity.id, link)}
+                                onMouseEnter={() => previewLinkItem(link)}
+                                onMouseLeave={cancelScheduledTrackPreview}
                               >
                                 <div className="detail-link-main">
                                   <strong className="detail-link-title">
@@ -2601,6 +2837,11 @@ useEffect(() => {
                                       {formatCompactNumber(link.payload?.listeners || link.listeners)}
                                     </span>
                                   ) : null}
+                                  {activePreviewId === link.id && link.kind === 'track' && (
+                                    <div className="soundwave-cluster detail-soundwave" aria-hidden="true">
+                                      <span /><span /><span />
+                                    </div>
+                                  )}
                                 </div>
                               </button>
                             ))}
@@ -2679,13 +2920,24 @@ useEffect(() => {
               <div className="drawer-list compact-drawer">
                 {playlist.length === 0 ? <div className="empty-drawer">No tracks yet.</div> : null}
                 {playlist.map((track) => (
-                  <div key={track.id} className="drawer-track" onClick={() => zoomToNode(track.id)}>
+                  <div
+                    key={track.id}
+                    className={`drawer-track${activePreviewId === track.id ? ' is-playing' : ''}`}
+                    onClick={() => zoomToNode(track.id)}
+                    onMouseEnter={() => previewPlaylistItem(track)}
+                    onMouseLeave={cancelScheduledTrackPreview}
+                  >
                     <img className="drawer-artwork" src={artworkForEntity(track)} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = fallbackArtworkForEntity(track); }} />
                     <div className="drawer-track-info">
                       <strong>{track.label}</strong>
                       <div>{track.subtitle}</div>
                     </div>
                     <div className="drawer-track-controls">
+                      {activePreviewId === track.id && (
+                        <div className="soundwave-cluster drawer-soundwave" aria-hidden="true">
+                          <span /><span /><span />
+                        </div>
+                      )}
                       <button className="icon-button remove-track-button" onClick={(e) => { e.stopPropagation(); togglePlaylist(track); }} title="Remove from playlist">
                         <TrashIcon />
                       </button>

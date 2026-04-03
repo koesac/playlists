@@ -248,11 +248,15 @@ input {
   background: rgba(255, 255, 255, 0.78);
 }
 
-.search-bar-expanded {
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+.search-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .search-input-wrap {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -276,10 +280,49 @@ input {
 .search-input.minimal {
   min-width: 0;
   padding: 11px 0;
+  padding-right: 34px;
   border: none;
   outline: none;
   background: transparent;
   color: var(--text);
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: none;
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-clear-btn:hover {
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--text);
+}
+
+.search-bar-utility {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.search-empty-hint {
+  margin: 0;
+  padding: 2px 4px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  max-width: none;
 }
 
 .search-launch-button {
@@ -446,8 +489,86 @@ input {
   font-size: 12px;
 }
 
+.result-chip {
+  min-height: 72px;
+}
+
 .result-chip.track  { border-color: rgba(124,58,237,0.36); }
 .result-chip.artist { border-color: rgba(14,165,233,0.36); }
+
+.result-copy em.result-artist {
+  color: var(--text);
+  opacity: 0.8;
+  font-size: 12px;
+}
+
+.result-copy em.result-album {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.result-copy em.result-meta {
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Widen the search flyout to fit two columns */
+.floating-search {
+  width: min(860px, calc(100% - 28px));
+}
+
+/* Two-column track grid */
+.result-tracks-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.result-column {
+  display: grid;
+  gap: 6px;
+}
+
+.result-column-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  padding: 2px 4px 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.source-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.source-dot.deezer  { background: #a238ff; }
+.source-dot.itunes  { background: #fc3c44; }
+
+.result-column-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 10px 4px;
+  opacity: 0.6;
+}
+
+/* Mobile — hide iTunes column, single column Deezer only */
+@media (max-width: 900px) {
+  .result-tracks-grid {
+    grid-template-columns: 1fr;
+  }
+  .itunes-col {
+    display: none;
+  }
+}
 
 .message-box.floating {
   padding: 10px 12px;
@@ -457,17 +578,6 @@ input {
 
 /* ── Floating actions (desktop: top-right) ───────────────── */
 
-.floating-actions.right {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 20;
-  pointer-events: auto !important;
-}
-
-.floating-actions.right .theme-toggle {
-  pointer-events: auto !important;
-}
 
 /* ── React Flow ──────────────────────────────────────────── */
 
@@ -785,6 +895,28 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 .soundwave-cluster span:nth-child(3) { height: 14px; animation-delay: 0.24s; }
 .soundwave-cluster span:nth-child(4) { height: 20px; animation-delay: 0.36s; }
 
+/* Compact soundwave for drawers and detail link rows */
+.drawer-soundwave,
+.detail-soundwave {
+  position: static;
+  height: 14px;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.drawer-soundwave span,
+.detail-soundwave span {
+  width: 3px;
+}
+
+.drawer-soundwave span:nth-child(1) { height: 6px; }
+.drawer-soundwave span:nth-child(2) { height: 12px; }
+.drawer-soundwave span:nth-child(3) { height: 9px; }
+
+.detail-soundwave span:nth-child(1) { height: 5px; }
+.detail-soundwave span:nth-child(2) { height: 10px; }
+.detail-soundwave span:nth-child(3) { height: 7px; }
+
 /* ── Chips ───────────────────────────────────────────────── */
 
 .chip-row {
@@ -836,9 +968,9 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 .ghost-card.kind-album  { --accent: #f59e0b; }
 .ghost-card.kind-genre  { --accent: #22c55e; }
 
-.ghost-card.relation-related-track  { border-color: rgb(185, 58, 231); }
-.ghost-card.relation-artist-track   { border-color: rgba(14, 164, 233, 0.858); }
-.ghost-card.relation-album-track    { border-color: rgba(255, 162, 0, 0.82); }
+.ghost-card.relation-related-track  { border-left-color: rgb(185, 58, 231); }
+.ghost-card.relation-artist-track   { border-left-color: rgba(14, 164, 233, 0.858); }
+.ghost-card.relation-album-track    { border-left-color: rgba(255, 162, 0, 0.82); }
 
 .ghost-card.is-playing {
   border-color: rgba(34, 211, 238, 0.55);
@@ -878,6 +1010,15 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 .ghost-label {
   font-weight: 700;
   margin: 4px 0;
+}
+
+.ghost-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 1px 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ghost-meta {
@@ -1141,7 +1282,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 }
 
 .minimal-detail.collapsed {
-  transform: translateX(calc(100% - 48px));
+  transform: translateX(calc(100% - 62px));  /* padding-right (14px) + button (40px) + 8px breathing room */
   background: transparent;
   border-left: none;
   backdrop-filter: none;
@@ -1177,7 +1318,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 }
 
 .minimal-drawer.closed {
-  transform: translateX(calc(-100% + 48px));
+  transform: translateX(calc(-100% + 62px));  /* padding-left (14px) + button (40px) + 8px breathing room */
   background: transparent;
   border-right: none;
   backdrop-filter: none;
@@ -1464,6 +1605,19 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 .detail-link-row.opened  { border-color: rgba(34, 197, 94, 0.55); }
 .detail-link-row.pending { border-style: dashed; }
 
+.detail-link-row.is-playing {
+  border-left-color: rgba(34, 211, 238, 0.85) !important;
+  background: rgba(34, 211, 238, 0.06);
+}
+
+.detail-link-row.is-playing .detail-link-title {
+  color: #22d3ee;
+}
+
+.root.light .detail-link-row.is-playing {
+  background: rgba(34, 211, 238, 0.08);
+}
+
 .detail-link-row.link-track  { border-left-color: #7c3aed; }
 .detail-link-row.link-artist { border-left-color: #0ea5e9; }
 .detail-link-row.link-album  { border-left-color: #f59e0b; }
@@ -1649,6 +1803,17 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 :root.light .drawer-track:hover {
   background: rgba(226, 232, 240, 0.9);
   border-color: rgba(124, 58, 237, 0.35);
+}
+
+.drawer-track.is-playing {
+  border-color: rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2), 0 10px 28px rgba(2, 6, 23, 0.35);
+  background: rgba(14, 25, 48, 0.92);
+}
+
+.root.light .drawer-track.is-playing {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2), 0 10px 28px rgba(0, 0, 0, 0.1);
+  background: rgba(236, 254, 255, 0.6);
 }
 
 .drawer-track-info {
@@ -1946,19 +2111,34 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 
 @media (max-width: 900px) {
 
-  .search-bar-expanded {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+  .search-bar-row .search-go {
+    display: none; /* Enter key works on mobile */
   }
 
-  .search-bar-expanded .search-go {
-    display: none;
+  /* Constrain search bar between the two toggle clusters */
+  .floating-search {
+    left: 66px;          /* 14px + 48px playlist toggle + 4px gap */
+    right: 66px;         /* 14px + 48px detail toggle + 4px gap  */
+    transform: none;
+    width: auto;
+  }
+  .floating-search.collapsed {
+    /* collapsed is just the launch button — re-centre it */
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: auto;
   }
 
-  .floating-actions.right {
-    top: auto;
-    right: 10px;
-    bottom: calc(72px + env(safe-area-inset-bottom));
-    z-index: 31;
+  /* Hide minimap on mobile (too small to be useful, fights for z-index) */
+  .react-flow__minimap {
+    display: none !important;
+  }
+
+  /* Lift controls above the now-playing mini (bottom: 72px + gap) */
+  .react-flow__controls {
+    bottom: 80px !important;
+    left: 10px !important;
   }
 
   .now-playing-desktop {
@@ -2083,35 +2263,72 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
     z-index: 300;
   }
 
+  /* OPEN: full screen, same as detail panel */
   .minimal-drawer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    z-index: 200;
+    background: var(--bg);
+    border-right: none;
+    border-radius: 0;
+    transform: none;            /* kill the desktop slide-transform */
+    grid-template-rows: auto minmax(0, 1fr) auto; /* restore footer row */
+    padding: 14px;
+    backdrop-filter: none;      /* shared mobile perf rule */
+  }
+
+  /* Open drawer sits above the detail toggle (z-index: 300) */
+  .minimal-drawer:not(.closed) {
+    z-index: 310;
+  }
+
+  .root.light .minimal-drawer {
+    background: var(--bg);
+  }
+
+  /* CLOSED: just the toggle button, top-left corner — same pattern as detail.collapsed */
+  .minimal-drawer.closed {
     position: absolute;
     top: 14px;
     left: 14px;
-    z-index: 80;
-    width: min(340px, calc(100vw - 28px));
-    max-height: calc(100vh - 160px);
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 10px;
-    padding: 12px;
-    background: rgba(8, 17, 32, 0.88);
-    border: 1px solid var(--border);
-    border-radius: 22px;
-    transition: opacity 180ms ease, transform 180ms ease;
-    backdrop-filter: blur(12px);
-    box-shadow: var(--shadow);
-    touch-action: pan-y;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
-  }
-
-  :root.light .minimal-drawer {
-    background: rgba(255, 255, 255, 0.88);
-  }
-
-  :root.light .minimal-detail.collapsed,
-  :root.light .minimal-drawer.closed {
+    right: auto;
+    bottom: auto;
+    width: auto;
+    height: auto;
+    max-height: none;
+    transform: none;            /* MUST override desktop translateX */
     background: transparent !important;
+    border: none;
+    padding: 0;
+    z-index: 300;
+  }
+
+  /* Hide the opposite toggle when a panel is open */
+  .graph-panel:has(.minimal-drawer:not(.closed)) .minimal-detail.collapsed {
+    display: none !important;
+  }
+
+  .graph-panel:has(.minimal-detail:not(.collapsed)) .minimal-drawer.closed {
+    display: none !important;
+  }
+
+  /* Strip the open-state padding from collapsed/closed containers */
+  .minimal-detail.collapsed,
+  .minimal-drawer.closed {
+    padding: 0;
+  }
+
+  /* Make sure the togglebar itself has no extra spacing */
+  .minimal-detail.collapsed .panel-floating-togglebar,
+  .minimal-drawer.closed .panel-floating-togglebar {
+    padding: 0;
+    margin: 0;
   }
 
   .react-flow__minimap {
@@ -2203,4 +2420,206 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
   :root.light .search-bar-shell {
     background: rgba(255, 255, 255, 0.97);
   }
+}
+
+/* ============================================================
+   WebGL Graph View Styles
+   ============================================================ */
+
+.graph-view-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.graph-canvas-container {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.graph-canvas-container:active {
+  cursor: grabbing;
+}
+
+.graph-canvas-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Loading overlay */
+.graph-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+
+:root.light .graph-loading-overlay {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.graph-loading-overlay p {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.graph-loading-spinner {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.spinner-ring {
+  position: absolute;
+  inset: 0;
+  border: 3px solid transparent;
+  border-radius: 50%;
+}
+
+.spinner-ring:nth-child(1) {
+  border-top-color: #7c3aed;
+  animation: spin 1.2s linear infinite;
+}
+
+.spinner-ring:nth-child(2) {
+  border-right-color: #0ea5e9;
+  animation: spin 1.6s linear infinite reverse;
+}
+
+.spinner-ring:nth-child(3) {
+  border-bottom-color: #22c55e;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Tooltip */
+.graph-tooltip {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+  pointer-events: none;
+  max-width: 280px;
+}
+
+:root.light .graph-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.graph-tooltip strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.graph-tooltip span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Graph view tab button */
+.graph-tab-button {
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.92);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.graph-tab-button:hover {
+  background: rgba(30, 41, 59, 0.95);
+}
+
+.graph-tab-button.active {
+  border-color: rgba(124, 58, 237, 0.8);
+  background: rgba(124, 58, 237, 0.2);
+}
+
+:root.light .graph-tab-button {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:root.light .graph-tab-button:hover {
+  background: rgba(240, 242, 245, 0.95);
+}
+
+:root.light .graph-tab-button.active {
+  background: rgba(124, 58, 237, 0.12);
+}
+
+/* Graph controls bar */
+.graph-controls-bar {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+
+:root.light .graph-controls-bar {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.graph-controls-bar label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.graph-controls-bar select,
+.graph-controls-bar input {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--text);
+  font-size: 13px;
+}
+
+:root.light .graph-controls-bar select,
+:root.light .graph-controls-bar input {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.graph-node-count {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
 }
