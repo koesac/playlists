@@ -300,6 +300,15 @@ function normalizeArtistEntity(artist, detail = null) {
       listeners: album.playcount || 0,
     });
   });
+
+  // Normalise listener counts to a 0–1 relative scale within this artist's tracks
+  const trackLinks = links.filter(l => l.kind === "track");
+  const maxListeners = Math.max(1, ...trackLinks.map(l => l.payload?.listeners || 0));
+  trackLinks.forEach(l => {
+    const raw = l.payload?.listeners || 0;
+    l.relativePopularity = raw > 0 ? raw / maxListeners : 0;
+  });
+
   return {
     id,
     kind: "artist",
@@ -540,24 +549,28 @@ function GraphNode({ data, selected }) {
 
 function GhostNode({ data }) {
   const simPct = data.similarity > 0 ? Math.round(data.similarity * 100) : null;
-  const pop = data.listeners > 0 ? formatCompactNumber(data.listeners) : null;
+  const relPop = data.relativePopularity > 0 ? data.relativePopularity : null;
+  const showBar = simPct !== null || relPop !== null;
+  const barWidth = simPct !== null
+    ? Math.max(8, simPct)
+    : Math.max(8, Math.round(relPop * 100));
+  const barClass = simPct !== null ? "ghost-bar sim" : "ghost-bar pop";
 
   return (
     <div className={`ghost-card kind-${data.kind} relation-${data.relation} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""} ${data.isPlaying ? "is-playing" : ""}`} style={{ "--accent": `#${ghostAccentColor(data.relation)}` }}>
       <div className="ghost-kind">{data.relation}</div>
       <div className="ghost-label">{data.label}</div>
-      {(data.rank || simPct || pop) && (
+      {(data.rank || showBar) && (
         <div className="ghost-meta">
           {data.rank && <span className="ghost-badge rank">#{data.rank}</span>}
-          {data.similarity > 0 && (
+          {showBar && (
             <div className="ghost-similarity-bar">
               <div
-                className="ghost-similarity-bar-fill"
-                style={{ width: `${Math.max(8, Math.round(data.similarity * 100))}%` }}
+                className={barClass}
+                style={{ width: `${barWidth}%` }}
               />
             </div>
           )}
-          {pop && <span className="ghost-badge pop">{pop}</span>}
         </div>
       )}
       {data.isPlaying && data.kind === "track" && (
@@ -1869,6 +1882,7 @@ useEffect(() => {
           label: link.label,
           kind: link.kind,
           similarity: link.similarity ?? null,
+          relativePopularity: link.relativePopularity ?? null,
           rank: link.rank ?? null,
           listeners: link.payload?.listeners ?? 0,
           opened: Boolean(findCanvasNodeForLink(link, entityId) || entityMap[link.id]?.loaded),
@@ -2569,11 +2583,20 @@ useEffect(() => {
                                       />
                                     </div>
                                   )}
+
+                                  {link.relation === "artist-track" && link.relativePopularity > 0 ? (
+                                    <div className="detail-link-similarity">
+                                      <div
+                                        className="detail-link-similarity-bar pop"
+                                        style={{ width: `${Math.max(8, Math.round(link.relativePopularity * 100))}%` }}
+                                      />
+                                    </div>
+                                  ) : null}
                                 </div>
 
                                 <div className="detail-link-meta">
                                   {link.rank ? <span className="detail-link-rank">#{link.rank}</span> : null}
-                                  {(link.payload?.listeners || link.listeners) ? (
+                                  {link.relation !== "artist-track" && (link.payload?.listeners || link.listeners) ? (
                                     <span className="detail-link-popularity">
                                       {formatCompactNumber(link.payload?.listeners || link.listeners)}
                                     </span>
