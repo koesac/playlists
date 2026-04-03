@@ -632,6 +632,7 @@ function FlowApp() {
   const playbackRequestRef = useRef(0);
   const lastAppliedAudioSrcRef = useRef("");
   const lastTimeUpdateSecondRef = useRef(-1);
+  const crossfadeTimerRef = useRef(null);
   const graphPanelRef = useRef(null);
   const searchBoxRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -1129,6 +1130,25 @@ useEffect(() => {
       playPromise
         .then(() => {
           debugAudio("play-resolved", { requestId });
+          // Crossfade in: ramp volume back up over ~300ms
+          if (crossfadeTimerRef.current) {
+            cancelAnimationFrame(crossfadeTimerRef.current);
+            crossfadeTimerRef.current = null;
+          }
+          const fadeStart = performance.now();
+          const fadeDuration = 300;
+          const fadeIn = (now) => {
+            const elapsed = now - fadeStart;
+            const progress = Math.min(elapsed / fadeDuration, 1);
+            el.volume = Math.max(0, Math.min(1, progress));
+            if (progress < 1) {
+              crossfadeTimerRef.current = requestAnimationFrame(fadeIn);
+            } else {
+              el.volume = 1;
+              crossfadeTimerRef.current = null;
+            }
+          };
+          crossfadeTimerRef.current = requestAnimationFrame(fadeIn);
         })
         .catch((err) => {
           console.warn("[audio-debug] play failed", {
@@ -1255,6 +1275,8 @@ useEffect(() => {
       });
       if (selectId) setSelectedId(selectId);
       if (overrideEntity) setNowPlayingOverride(overrideEntity);
+      // Restart the track from the beginning for re-preview
+      audioEl.currentTime = 0;
       return true;
     }
 
@@ -1268,11 +1290,47 @@ useEffect(() => {
       hasOverrideEntity: Boolean(overrideEntity)
     });
 
-    setNowPlayingOverride(overrideEntity);
-    if (id) setActivePreviewId(id);
-    if (selectId) setSelectedId(selectId);
-    setAudioSrc(absolutePreviewUrl);
-    setNowPlayingVersion((current) => current + 1);
+    // Crossfade: if audio is currently playing, fade out before swapping
+    const isCurrentlyPlaying = audioEl && audioEl.currentSrc && !audioEl.paused && !audioEl.ended;
+    const needsCrossfade = isCurrentlyPlaying && audioEl.volume > 0.01;
+    const swapAndFadeIn = () => {
+      setNowPlayingOverride(overrideEntity);
+      if (id) setActivePreviewId(id);
+      if (selectId) setSelectedId(selectId);
+      setAudioSrc(absolutePreviewUrl);
+      setNowPlayingVersion((current) => current + 1);
+    };
+
+    if (needsCrossfade) {
+      if (crossfadeTimerRef.current) {
+        cancelAnimationFrame(crossfadeTimerRef.current);
+        crossfadeTimerRef.current = null;
+      }
+      const fadeStart = performance.now();
+      const fadeDuration = 300;
+      const startVolume = audioEl.volume;
+      const fadeOut = (now) => {
+        const elapsed = now - fadeStart;
+        const progress = Math.min(elapsed / fadeDuration, 1);
+        audioEl.volume = Math.max(0, Math.min(1, startVolume * (1 - progress)));
+        if (progress < 1) {
+          crossfadeTimerRef.current = requestAnimationFrame(fadeOut);
+        } else {
+          audioEl.volume = 0;
+          crossfadeTimerRef.current = null;
+          swapAndFadeIn();
+        }
+      };
+      crossfadeTimerRef.current = requestAnimationFrame(fadeOut);
+    } else {
+      // Not crossfading — ensure volume is restored to 1 before swapping
+      if (audioEl) audioEl.volume = 1;
+      if (crossfadeTimerRef.current) {
+        cancelAnimationFrame(crossfadeTimerRef.current);
+        crossfadeTimerRef.current = null;
+      }
+      swapAndFadeIn();
+    }
 
     return true;
   }, [activePreviewId, audioSrc]);
@@ -1515,6 +1573,7 @@ useEffect(() => {
   useEffect(() => {
     return () => {
       if (hoverPreviewTimerRef.current) clearTimeout(hoverPreviewTimerRef.current);
+      if (crossfadeTimerRef.current) cancelAnimationFrame(crossfadeTimerRef.current);
     };
   }, []);
 
