@@ -908,5 +908,6 @@ module.exports = {
   getTrackDetail,
   getArtistDetail,
   getAlbumDetail,
-  getGenreDetail
+  getGenreDetail,
+  lastfmSimilar
 };

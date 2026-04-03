@@ -34,6 +34,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tracks_bpm ON tracks(bpm);
   CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
   CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+
+  CREATE TABLE IF NOT EXISTS library_nodes (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    bpm INTEGER,
+    genre TEXT,
+    listeners INTEGER,
+    artwork_url TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS library_edges (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    weight REAL NOT NULL,
+    PRIMARY KEY (source, target, relation)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_library_edges_source ON library_edges(source);
+  CREATE INDEX IF NOT EXISTS idx_library_edges_target ON library_edges(target);
 `);
 
 function listDrafts() {
@@ -222,6 +244,66 @@ function getGraphData(limit = 1000) {
   };
 }
 
+// --- Library graph operations ---
+function upsertLibraryNode(node) {
+  db.prepare(`
+    INSERT INTO library_nodes (id, title, artist, kind, bpm, genre, listeners, artwork_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      artist = excluded.artist,
+      kind = excluded.kind,
+      bpm = excluded.bpm,
+      genre = excluded.genre,
+      listeners = excluded.listeners,
+      artwork_url = excluded.artwork_url
+  `).run(node.id, node.title, node.artist, node.kind, node.bpm || null, node.genre || null, node.listeners || null, node.artwork_url || null);
+}
+
+function insertLibraryEdge(source, target, weight) {
+  db.prepare(`
+    INSERT INTO library_edges (source, target, relation, weight)
+    VALUES (?, ?, 'similar', ?)
+    ON CONFLICT(source, target, relation) DO NOTHING
+  `).run(source, target, weight);
+}
+
+function getExistingLibraryTrackIds() {
+  const rows = db.prepare(`SELECT id FROM library_nodes WHERE kind = 'track'`).all();
+  return new Set(rows.map(r => r.id));
+}
+
+function getLibraryGraphData() {
+  const nodes = db.prepare(`
+    SELECT id, title, artist, kind, bpm, genre, listeners, artwork_url
+    FROM library_nodes
+  `).all();
+
+  const links = db.prepare(`
+    SELECT source, target, relation, weight
+    FROM library_edges
+  `).all();
+
+  return {
+    nodes: nodes.map(n => ({
+      id: n.id,
+      title: n.title,
+      artist: n.artist,
+      kind: n.kind,
+      bpm: n.bpm,
+      genre: n.genre,
+      listeners: n.listeners,
+      artwork_url: n.artwork_url
+    })),
+    links: links.map(l => ({
+      source: l.source,
+      target: l.target,
+      relation: l.relation,
+      weight: l.weight
+    }))
+  };
+}
+
 module.exports = {
   listDrafts,
   getDraft,
@@ -236,5 +318,9 @@ module.exports = {
   getEdgesForTrack,
   getAllEdges,
   deleteEdgesForTrack,
-  getGraphData
+  getGraphData,
+  upsertLibraryNode,
+  insertLibraryEdge,
+  getExistingLibraryTrackIds,
+  getLibraryGraphData
 };

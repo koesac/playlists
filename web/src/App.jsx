@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, Routes, Route } from "react-router-dom";
 import {
   addEdge,
   Background,
@@ -15,6 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import ThemeToggle from "./ThemeToggle";
+import LibraryGraph from "./LibraryGraph";
 
 async function api(url, options = {}) {
   const opts = { ...options, headers: { ...(options.headers || {}) } };
@@ -2947,6 +2949,9 @@ useEffect(() => {
               </div>
 
               <div className="playlist-drawer-footer">
+                <Link to="/library" className="library-universe-link">
+                  View Library Universe
+                </Link>
                 <div className="studio-title-bar">
                   <input
                     className="studio-title-input"
@@ -3017,8 +3022,9 @@ useEffect(() => {
 
 export default function App() {
   return (
-    <ReactFlowProvider>
-      <FlowApp />
-    </ReactFlowProvider>
+    <Routes>
+      <Route path="/" element={<ReactFlowProvider><FlowApp /></ReactFlowProvider>} />
+      <Route path="/library" element={<LibraryGraph />} />
+    </Routes>
   );
 }

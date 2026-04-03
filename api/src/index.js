@@ -3,7 +3,8 @@ const cors = require("cors");
 const morgan = require("morgan");
 const crypto = require("crypto");
 
-const { listDrafts, getDraft, saveDraft, deleteDraft, upsertTrack, getTrack, listTracks, deleteTrack, getGraphData } = require("./db");
+const { listDrafts, getDraft, saveDraft, deleteDraft, upsertTrack, getTrack, listTracks, deleteTrack, getGraphData, getLibraryGraphData } = require("./db");
+const { syncPlaylistToLibrary } = require("./librarySync");
 const {
   searchMusicBrainzTracks,
   searchMusicBrainzArtists,
@@ -162,6 +163,13 @@ app.post("/api/drafts", (req, res) => {
     data
   });
 
+  // Fire-and-forget: sync playlist to library graph in background
+  if (data && Array.isArray(data.playlist)) {
+    syncPlaylistToLibrary(data.playlist).catch(err => {
+      console.error("[librarySync] Background sync failed:", err.message);
+    });
+  }
+
   res.json(saved);
 });
 
@@ -171,6 +179,15 @@ app.delete("/api/drafts/:id", (req, res) => {
 });
 
 // --- Graph data endpoints ---
+app.get("/api/library/graph", (req, res) => {
+  try {
+    const graphData = getLibraryGraphData();
+    res.json(graphData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/graph-data", (req, res) => {
   try {
     const limit = Number(req.query.limit || 1000);
