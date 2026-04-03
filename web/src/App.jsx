@@ -451,20 +451,7 @@ function GraphNode({ data, selected }) {
           </div>
         </div>
       </div>
-      {entity.kind === "track" && (
-        <div className="entity-track-actions">
-          <button
-            className={`entity-playlist-button ${inPlaylist ? "active" : ""}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              data?.onTogglePlaylist?.(entity);
-            }}
-          >
-            {inPlaylist ? "Added" : "+ Playlist"}
-          </button>
-        </div>
-      )}
-      {entity.kind === "track" && <div className="track-hint">Hover or click plays · double-click adds</div>}
+      {entity.kind === "track" && <div className="track-hint">{inPlaylist ? "Double-click removes from playlist" : "Hover or click plays · double-click adds"}</div>}
       {entity.kind === "track" && isPlaying && (
         <div className="soundwave-cluster" aria-hidden="true"><span /><span /><span /><span /></div>
       )}
@@ -953,7 +940,14 @@ const handleMiniPlayToggle = (event) => {
 
   const togglePlaylist = useCallback((entity) => {
     if (!entity || entity.kind !== "track") return;
-    setPlaylist((current) => current.some((item) => item.id === entity.id) ? current.filter((item) => item.id !== entity.id) : [...current, entity]);
+    setPlaylist((current) => {
+      if (current.some((item) => item.id === entity.id)) {
+        setMessage("Removed from playlist");
+        return current.filter((item) => item.id !== entity.id);
+      }
+      setMessage("Added to playlist");
+      return [...current, entity];
+    });
   }, []);
 
   const syncNodes = useCallback((nodeList, nextEntityMap, nextPlaylistIds, nextActivePreviewId = activePreviewId) => {

@@ -330,7 +330,7 @@ async function getAlbumTracks(artist, album, limit = 20) {
   }), []);
 }
 
-async function lastfmRequest(params, cacheKey, ttlSeconds = 3600) {
+async function lastfmRequest(params, cacheKey, ttlSeconds = 86400) {
   if (!LASTFM_API_KEY) return null;
 
   return cacheJson(cacheKey, ttlSeconds, async () => {
