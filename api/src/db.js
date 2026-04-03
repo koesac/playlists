@@ -3,6 +3,13 @@ const Database = require("better-sqlite3");
 const dbPath = process.env.DB_PATH || "/data/app.db";
 const db = new Database(dbPath);
 
+// Add preview_url column if it doesn't exist (safe to run multiple times)
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN preview_url TEXT;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS drafts (
     id TEXT PRIMARY KEY,
@@ -247,8 +254,8 @@ function getGraphData(limit = 1000) {
 // --- Library graph operations ---
 function upsertLibraryNode(node) {
   db.prepare(`
-    INSERT INTO library_nodes (id, title, artist, kind, bpm, genre, listeners, artwork_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO library_nodes (id, title, artist, kind, bpm, genre, listeners, artwork_url, preview_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       artist = excluded.artist,
@@ -256,8 +263,9 @@ function upsertLibraryNode(node) {
       bpm = excluded.bpm,
       genre = excluded.genre,
       listeners = excluded.listeners,
-      artwork_url = excluded.artwork_url
-  `).run(node.id, node.title, node.artist, node.kind, node.bpm || null, node.genre || null, node.listeners || null, node.artwork_url || null);
+      artwork_url = excluded.artwork_url,
+      preview_url = excluded.preview_url
+  `).run(node.id, node.title, node.artist, node.kind, node.bpm || null, node.genre || null, node.listeners || null, node.artwork_url || null, node.previewUrl || null);
 }
 
 function insertLibraryEdge(source, target, weight) {
@@ -289,7 +297,7 @@ function findLibraryNodeByNormalizedTitle(normalizedArtist, normalizedTitle) {
 
 function getLibraryGraphData() {
   const nodes = db.prepare(`
-    SELECT id, title, artist, kind, bpm, genre, listeners, artwork_url
+    SELECT id, title, artist, kind, bpm, genre, listeners, artwork_url, preview_url as previewUrl
     FROM library_nodes
   `).all();
 
@@ -307,7 +315,8 @@ function getLibraryGraphData() {
       bpm: n.bpm,
       genre: n.genre,
       listeners: n.listeners,
-      artwork_url: n.artwork_url
+      artwork_url: n.artwork_url,
+      previewUrl: n.previewUrl
     })),
     links: links.map(l => ({
       source: l.source,

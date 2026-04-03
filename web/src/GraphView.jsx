@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass";
 
 // Simple force-directed layout for initial positioning
 function computeForceLayout(nodes, links, iterations = 300) {
@@ -178,8 +181,10 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
   const controlsRef = useRef(null);
+  const composerRef = useRef(null);
   const nodeSpritesRef = useRef(new Map());
   const linkLinesRef = useRef([]);
+  const lastInteractionRef = useRef(Date.now());
   const raycasterRef = useRef(new THREE.Raycaster());
   const mouseRef = useRef(new THREE.Vector2());
   const animationFrameRef = useRef(null);
@@ -208,8 +213,24 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // Post-processing: EffectComposer with Bloom
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(containerRef.current.clientWidth, containerRef.current.clientHeight),
+      1.5,   // strength
+      0.4,   // radius
+      0.85   // threshold
+    );
+    composer.addPass(bloomPass);
+    composerRef.current = composer;
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -234,9 +255,13 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
     // Handle resize
     const handleResize = () => {
       if (!containerRef.current) return;
-      camera.aspect = containerRef.current.clientWidth / containerRef.current.clientHeight;
+      const width = containerRef.current.clientWidth;
+      const height = containerRef.current.clientHeight;
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
+      bloomPass.resolution.set(width, height);
     };
     window.addEventListener("resize", handleResize);
 
@@ -269,12 +294,14 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
     // Compute layout
     const layout = computeForceLayout(nodes, links, 400);
 
-    // Create link lines
+    // Create link lines (initially hidden, shown on hover)
     links.forEach((link) => {
       const sourcePos = layout.get(link.source);
       const targetPos = layout.get(link.target);
       if (sourcePos && targetPos) {
         const line = createLinkLine(sourcePos, targetPos, link.weight);
+        line.visible = false; // Hidden by default
+        line.userData = { source: link.source, target: link.target };
         scene.add(line);
         linkLinesRef.current.push(line);
       }
@@ -297,15 +324,33 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
 
   const animate = useCallback(() => {
     animationFrameRef.current = requestAnimationFrame(animate);
+    const now = Date.now();
+    const isIdle = now - lastInteractionRef.current > 3000;
+
     if (controlsRef.current) {
       controlsRef.current.update();
     }
-    if (rendererRef.current && sceneRef.current && cameraRef.current) {
+
+    // Slow auto-rotation when idle
+    if (isIdle && sceneRef.current && cameraRef.current) {
+      const orbitSpeed = 0.0003; // radians per millisecond
+      const orbitRadius = 800;
+      const time = now * orbitSpeed;
+      cameraRef.current.position.x = Math.sin(time) * orbitRadius;
+      cameraRef.current.position.z = Math.cos(time) * orbitRadius;
+      cameraRef.current.position.y = Math.sin(time * 0.5) * 200;
+      cameraRef.current.lookAt(sceneRef.current.position);
+    }
+
+    if (rendererRef.current && sceneRef.current && cameraRef.current && composerRef.current) {
+      composerRef.current.render();
+    } else if (rendererRef.current && sceneRef.current && cameraRef.current) {
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     }
   }, []);
 
   const handleClick = useCallback((event) => {
+    lastInteractionRef.current = Date.now();
     if (!containerRef.current || !cameraRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -337,6 +382,7 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
   }, [onNodeClick]);
 
   const handleMouseMove = useCallback((event) => {
+    lastInteractionRef.current = Date.now();
     if (!containerRef.current || !cameraRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -409,6 +455,24 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
       group.scale.setScalar(scale);
     });
   }, [selectedNodeId]);
+
+  // Update link visibility based on hovered node
+  useEffect(() => {
+    linkLinesRef.current.forEach((line) => {
+      if (!hoveredNode) {
+        line.visible = false;
+      } else {
+        const isConnected =
+          line.userData.source === hoveredNode.id ||
+          line.userData.target === hoveredNode.id;
+        line.visible = isConnected;
+        if (isConnected) {
+          line.material.opacity = 0.8;
+          line.material.color.set(0x7c3aed);
+        }
+      }
+    });
+  }, [hoveredNode]);
 
   return (
     <div className="graph-view-container">

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ForceGraph3D from "react-force-graph-3d";
-import * as THREE from "three";
 
 // Node color by kind
 function nodeColor(node) {
@@ -20,21 +19,17 @@ function nodeVal(node) {
   return Math.max(2, Math.log10(pop + 10) * 1.5);
 }
 
-// Truncate text for tooltip
-function truncateText(text, maxLen = 40) {
-  if (!text) return "";
-  return text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
-}
-
 function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const graphRef = useRef(null);
   const containerRef = useRef(null);
+  const hoverTimerRef = useRef(null);
+  const audioRef = useRef(null);
 
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [nodeCount, setNodeCount] = useState(0);
   const [linkCount, setLinkCount] = useState(0);
 
@@ -82,17 +77,43 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     return () => { cancelled = true; };
   }, [nodeLimit]);
 
-  // Track mouse position for tooltip
-  const handleContainerMouseMove = useCallback((e) => {
-    setTooltipPos({ x: e.clientX, y: e.clientY });
+  // Track mouse position for hover overlay
+  const handleMouseMove = useCallback((e) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // Handle node hover — react-force-graph-3d passes (node, prevNode)
+  // Handle node hover — debounced audio preview trigger
   const handleNodeHover = useCallback((node) => {
-    setHoveredNode(node);
+    setHoveredNode(node || null);
+
+    // Clear any pending audio preview trigger
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+
+    if (node) {
+      // If we hovered over a track with a preview URL, start a new timer
+      if (node.kind === "track" && node.previewUrl) {
+        hoverTimerRef.current = setTimeout(() => {
+          if (audioRef.current) {
+            // Prevent DOMException by checking if it's already playing this source
+            if (audioRef.current.src !== node.previewUrl) {
+              audioRef.current.src = node.previewUrl;
+            }
+            audioRef.current.play().catch(e => console.warn("Playback prevented:", e));
+          }
+        }, 400); // Wait 400ms of resting on the node before playing
+      }
+    } else {
+      // Mouse moved off into empty space, pause the audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    }
   }, []);
 
-  // Handle node click — fly camera to node
+  // Handle node click — strictly for camera navigation
   const handleNodeClick = useCallback((node) => {
     if (!graphRef.current || !node) return;
 
@@ -100,26 +121,31 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     onNodeSelect?.(node);
 
     // Camera fly-to
-    const distance = 120;
-    const distRatio = 1 + distance / Math.hypot(node.x || 0, node.y || 0, node.z || 0);
+    const distance = 100;
+    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
     graphRef.current.cameraPosition(
+      { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+      node,
+      1500 // Smooth 1.5s flight
+    );
+  }, [onNodeSelect]);
+
+  // Handle node double-click — fly camera closer (audio preview now triggered by hover)
+  const handleNodeDoubleClick = useCallback((node) => {
+    if (!node) return;
+
+    // Fly camera closer to node
+    const distance = 80;
+    const distRatio = 1 + distance / Math.hypot(node.x || 0, node.y || 0, node.z || 0);
+    graphRef.current?.cameraPosition(
       {
         x: (node.x || 0) * distRatio,
         y: (node.y || 0) * distRatio,
         z: (node.z || 0) * distRatio,
       },
       { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
-      2000
+      1200
     );
-  }, [onNodeSelect]);
-
-  // Link material — simple line with low opacity
-  const linkMaterial = useCallback(() => {
-    return new THREE.LineBasicMaterial({
-      color: new THREE.Color(0.58, 0.64, 0.72),
-      transparent: true,
-      opacity: 0.15,
-    });
   }, []);
 
   if (loading) {
@@ -148,7 +174,13 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   }
 
   return (
-    <div className="graph-view-container" ref={containerRef} onMouseMove={handleContainerMouseMove}>
+    <div
+      className="graph-view-container"
+      ref={containerRef}
+      onMouseMove={handleMouseMove}
+    >
+      {/* Hidden audio element for preview playback */}
+      <audio ref={audioRef} />
       {/* Back to Studio link */}
       <Link to="/" className="back-to-studio-link">← Back to Studio</Link>
       {/* Node count badge */}
@@ -161,45 +193,75 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         graphData={graphData}
 
         // ── Performance optimizations (CRITICAL for 10k nodes) ──
-        warmupTicks={150}
+        warmupTicks={100}
         cooldownTicks={0}
-        nodeResolution={6}
-        linkResolution={1}
-        linkWidth={0.5}
-
-        // ── Visuals ──
+        nodeResolution={8}
         nodeColor={nodeColor}
         nodeVal={nodeVal}
         nodeRelSize={1}
         linkColor={() => "rgba(148, 163, 184, 0.15)"}
-        linkMaterial={linkMaterial}
+        linkWidth={0.5}
         backgroundColor="#020617"
         showNavInfo={false}
 
         // ── Interaction ──
         onNodeHover={handleNodeHover}
         onNodeClick={handleNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
 
         // ── Force engine tuning ──
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.4}
       />
 
-      {/* HTML tooltip overlay for hovered node */}
+      {/* Rich HTML hover overlay for hovered nodes */}
       {hoveredNode && (
         <div
-          className="graph-tooltip"
+          className="entity-card hover-preview"
           style={{
-            left: tooltipPos.x + 16,
-            top: tooltipPos.y - 10,
+            position: "absolute",
+            top: mousePos.y + 15,
+            left: mousePos.x + 15,
+            pointerEvents: "none",
+            zIndex: 1000,
+            width: "280px",
+            "--accent": nodeColor(hoveredNode),
           }}
         >
-          <strong>{truncateText(hoveredNode.title || hoveredNode.name || hoveredNode.id)}</strong>
-          {hoveredNode.artist && <span>{hoveredNode.artist}</span>}
-          {hoveredNode.bpm && <span>BPM: {hoveredNode.bpm}</span>}
-          {hoveredNode.genre && <span>Genre: {hoveredNode.genre}</span>}
-          {hoveredNode.playcount != null && (
-            <span>{hoveredNode.playcount.toLocaleString()} plays</span>
+          <div className="entity-body" style={{ padding: "12px", display: "flex", gap: "12px" }}>
+            {hoveredNode.artwork_url && (
+              <img
+                src={hoveredNode.artwork_url}
+                style={{ width: "48px", height: "48px", borderRadius: "4px", objectFit: "cover" }}
+                alt="artwork"
+                onError={(e) => { e.target.style.display = "none"; }}
+              />
+            )}
+            <div className="entity-copy">
+              <div className="entity-title" style={{ fontWeight: "bold", color: "white" }}>
+                {hoveredNode.label || hoveredNode.title || hoveredNode.name || hoveredNode.id}
+              </div>
+              <div className="entity-subtitle" style={{ color: "#94a3b8", fontSize: "13px" }}>
+                {hoveredNode.artist || ""}
+              </div>
+
+              {/* Render Badges */}
+              <div className="chip-row" style={{ marginTop: "6px", display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                {hoveredNode.genre && <span className="chip">{hoveredNode.genre}</span>}
+                {hoveredNode.bpm && <span className="chip">{hoveredNode.bpm} BPM</span>}
+                {hoveredNode.playcount != null && (
+                  <span className="chip">{hoveredNode.playcount.toLocaleString()} plays</span>
+                )}
+                {hoveredNode.listeners != null && (
+                  <span className="chip">{hoveredNode.listeners.toLocaleString()} listeners</span>
+                )}
+              </div>
+            </div>
+          </div>
+          {hoveredNode.kind === "track" && (
+            <div className="track-hint" style={{ marginTop: "8px", fontSize: "11px", color: "#c4b5fd" }}>
+              Hover to play preview
+            </div>
           )}
         </div>
       )}

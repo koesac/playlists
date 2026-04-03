@@ -35,7 +35,8 @@ async function syncPlaylistToLibrary(playlistTracks) {
       bpm: track.bpm || null,
       genre: track.genre || null,
       listeners: track.listeners || track.popularity?.listeners || null,
-      artwork_url: track.artworkUrl || null
+      artwork_url: track.artworkUrl || null,
+      previewUrl: track.previewUrl || null
     });
 
     // For tracks, fetch similar tracks from Last.fm
