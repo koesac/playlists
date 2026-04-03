@@ -616,6 +616,10 @@ function FlowApp() {
   const [nowPlayingVersion, setNowPlayingVersion] = useState(0);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [previewCache, setPreviewCache] = useState({});
+  const previewCacheRef = useRef(previewCache);
+  useEffect(() => {
+    previewCacheRef.current = previewCache;
+  }, [previewCache]);
   const [helpOpen, setHelpOpen] = useState(false);
   const [drafts, setDrafts] = useState([]);
   const [currentDraftId, setCurrentDraftId] = useState("");
@@ -624,6 +628,7 @@ function FlowApp() {
   const [saving, setSaving] = useState(false);
   const seeded = useRef(false);
   const hydrated = useRef(false);
+  const getViewportRef = useRef(null);
   const hoverPreviewTimerRef = useRef(null);
   const hoverPreviewTokenRef = useRef(0);
   const previewPromiseCacheRef = useRef({});
@@ -642,6 +647,11 @@ const isTouchDeviceRef = useRef(
   typeof window !== "undefined" && window.matchMedia("(hover: none)").matches
 );
   const { screenToFlowPosition, setCenter, getViewport, setViewport, fitView } = useReactFlow();
+
+  // Keep a stable ref to getViewport (it changes identity every render)
+  useEffect(() => {
+    getViewportRef.current = getViewport;
+  }, [getViewport]);
 
   const playlistIds = useMemo(() => playlist.map((item) => item.id), [playlist]);
   const committedCanvasEntityIds = useMemo(() => new Set(
@@ -714,7 +724,7 @@ const isTouchDeviceRef = useRef(
           drawerOpen,
           detailOpen,
           previewCache,
-          viewport: getViewport()
+          viewport: getViewportRef.current()
         }
       };
 
@@ -732,7 +742,7 @@ const isTouchDeviceRef = useRef(
     } finally {
       setSaving(false);
     }
-  }, [currentDraftId, draftTitle, entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, previewCache, getViewport, fetchDrafts]);
+  }, [currentDraftId, draftTitle, entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, previewCache, fetchDrafts]);
 
   const loadDraft = useCallback(async (id) => {
     try {
@@ -742,6 +752,7 @@ const isTouchDeviceRef = useRef(
       // Stop audio
       setAudioSrc("");
       setActivePreviewId("");
+      setNowPlayingOverride(null);
 
       setEntityMap(saved.entityMap || {});
       setNodes((saved.nodes || []).filter((node) => !String(node.id).startsWith("ghost:")));
@@ -786,6 +797,7 @@ const isTouchDeviceRef = useRef(
     if (!window.confirm("Create new studio? Current unsaved changes might be lost if not saved to a playlist.")) return;
     setAudioSrc("");
     setActivePreviewId("");
+    setNowPlayingOverride(null);
     setEntityMap({});
     setNodes([]);
     setEdges([]);
@@ -863,6 +875,11 @@ const handleMiniPlayToggle = (event) => {
   if (!el) return;
 
   userActivatedRef.current = true;
+
+  if (!audioSrc && spotlightTrackEntity) {
+    playEntity(spotlightTrackEntity, "mini-play-toggle");
+    return;
+  }
 
   if (el.paused || el.ended) {
     const playPromise = el.play();
@@ -1005,11 +1022,11 @@ const handleMiniPlayToggle = (event) => {
         previewCache,
         currentDraftId,
         draftTitle,
-        viewport: getViewport()
+        viewport: getViewportRef.current()
       }));
     } catch {
     }
-  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, getViewport, currentDraftId, draftTitle]);
+  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, currentDraftId, draftTitle]);
 
   // Auto-save draft on changes with debounce
   useEffect(() => {
@@ -1033,8 +1050,8 @@ const handleMiniPlayToggle = (event) => {
             selectedId,
             drawerOpen,
             detailOpen,
-            previewCache,
-            viewport: getViewport()
+            previewCache: previewCacheRef.current,
+            viewport: getViewportRef.current()
           }
         }
       }).then(() => {
@@ -1043,7 +1060,7 @@ const handleMiniPlayToggle = (event) => {
     }, 1500);
 
     return () => clearTimeout(handler);
-  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, previewCache, currentDraftId, draftTitle, getViewport, fetchDrafts]);
+  }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, currentDraftId, draftTitle, getViewport, fetchDrafts]);
 
   const debugAudio = useCallback((event, payload = {}) => {
     const el = audioRef.current;
@@ -1066,7 +1083,9 @@ const handleMiniPlayToggle = (event) => {
 
 useEffect(() => {
     const activateAudio = () => {
+      if (userActivatedRef.current) return;
       userActivatedRef.current = true;
+      document.body.classList.add("audio-unlocked");
     };
     document.addEventListener("pointerdown", activateAudio, { passive: true });
     document.addEventListener("keydown", activateAudio);
@@ -1096,6 +1115,10 @@ useEffect(() => {
 
     if (!audioSrc) {
       debugAudio("clear-audio");
+      if (crossfadeTimerRef.current) {
+        cancelAnimationFrame(crossfadeTimerRef.current);
+        crossfadeTimerRef.current = null;
+      }
       el.pause();
       el.removeAttribute("src");
       el.load();
@@ -1335,27 +1358,6 @@ useEffect(() => {
     return true;
   }, [activePreviewId, audioSrc]);
 
-  const playEntity = useCallback((entity, source = "entity", options = {}) => {
-    if (!entity || entity.kind !== "track") {
-      console.debug("[audio-debug] playEntity skipped", { source, entity });
-      return;
-    }
-
-    console.debug("[audio-debug] playEntity", {
-      source,
-      id: entity.id,
-      label: entity.label,
-      artist: entity.raw?.artist || entity.subtitle?.split(" · ")[0] || "",
-      previewUrl: entity.previewUrl
-    });
-
-    startPlayback(entity.id, entity.previewUrl, {
-      selectId: entity.id,
-      source,
-      nowPlayingEntity: options.nowPlayingEntity || entity
-    });
-  }, [startPlayback]);
-
   const playPreviewUrl = useCallback((id, previewUrl, source = "preview-url", options = {}) => {
     console.debug("[audio-debug] playPreviewUrl", {
       source,
@@ -1403,18 +1405,6 @@ useEffect(() => {
       }
     };
   }, [buildPreviewNowPlayingEntity]);
-
-  const focusEntity = useCallback((entityId) => {
-    if (!entityId) return;
-    setDetailOpen(true);
-    setSelectedId(entityId);
-  }, []);
-
-  const zoomToNode = useCallback((nodeId, zoom = 1.18) => {
-    const targetNode = nodes.find((node) => node.id === nodeId && !String(node.id).startsWith("ghost:"));
-    if (!targetNode) return;
-    setCenter(targetNode.position.x + 146, targetNode.position.y + 78, { zoom, duration: 380 });
-  }, [nodes, setCenter]);
 
   const warmTrackPreview = useCallback(async (trackLike, preferredId = "", options = {}) => {
     const artist = trackLike?.artist || trackLike?.payload?.artist || "";
@@ -1499,6 +1489,12 @@ useEffect(() => {
 
       if (previewUrl) {
         setPreviewCache((current) => current[cacheKey] ? current : { ...current, [cacheKey]: previewUrl });
+        // Always back-propagate previewUrl to the entity
+        setEntityMap((current) => {
+          const existing = current[targetId];
+          if (existing?.previewUrl) return current; // already has one, skip
+          return { ...current, [targetId]: { ...(existing || {}), previewUrl } };
+        });
       }
 
       if (artworkUrl) {
@@ -1545,7 +1541,64 @@ useEffect(() => {
     }
   }, [buildPreviewNowPlayingEntity, buildTrackEntityStub, previewCache, playPreviewUrl, setNodes]);
 
+  const playEntity = useCallback((entity, source = "entity", options = {}) => {
+    if (!entity || entity.kind !== "track") {
+      console.debug("[audio-debug] playEntity skipped", { source, entity });
+      return;
+    }
 
+    const resolvedPreviewUrl =
+      entity.previewUrl ||
+      previewCache[`track:${trackKey(
+        entity.raw?.artist || entity.subtitle?.split(" · ")[0] || "",
+        entity.label
+      )}`] ||
+      "";
+
+    console.debug("[audio-debug] playEntity", {
+      source,
+      id: entity.id,
+      label: entity.label,
+      previewUrl: resolvedPreviewUrl,
+      hadPreviewUrl: Boolean(entity.previewUrl)
+    });
+
+    if (!resolvedPreviewUrl) {
+      // Entity has no preview URL yet — route through warmTrackPreview
+      // which handles previewCache lookup → fetch → token cancellation
+      const artist = entity.raw?.artist || entity.subtitle?.split(" · ")[0] || "";
+      const title = entity.label;
+      const album = entity.raw?.album || entity.raw?.detail?.track?.album?.name || "";
+      warmTrackPreview(
+        { artist, title, album },
+        entity.id,
+        {
+          autoplay: true,
+          source: `${source}-warm`,
+          nowPlayingEntity: options.nowPlayingEntity || entity
+        }
+      );
+      return;
+    }
+
+    startPlayback(entity.id, resolvedPreviewUrl, {
+      selectId: entity.id,
+      source,
+      nowPlayingEntity: options.nowPlayingEntity || entity
+    });
+  }, [startPlayback, warmTrackPreview, previewCache]);
+
+  const focusEntity = useCallback((entityId) => {
+    if (!entityId) return;
+    setDetailOpen(true);
+    setSelectedId(entityId);
+  }, []);
+
+  const zoomToNode = useCallback((nodeId, zoom = 1.18) => {
+    const targetNode = nodes.find((node) => node.id === nodeId && !String(node.id).startsWith("ghost:"));
+    if (!targetNode) return;
+    setCenter(targetNode.position.x + 146, targetNode.position.y + 78, { zoom, duration: 380 });
+  }, [nodes, setCenter]);
 
   const cancelScheduledTrackPreview = useCallback(() => {
     hoverPreviewTokenRef.current += 1;
@@ -1860,6 +1913,7 @@ useEffect(() => {
       return;
     }
 
+    const token = hoverPreviewTokenRef.current;
     warmTrackPreview(
       {
         artist: item.artist,
@@ -1870,6 +1924,7 @@ useEffect(() => {
       {
         autoplay: true,
         source: "search-result-hover-fetch",
+        requestToken: token,
         nowPlayingEntity: previewEntity
       }
     ).catch((err) => {
@@ -2023,12 +2078,14 @@ useEffect(() => {
         const artist = node.data.trackArtist;
         const title = node.data.trackTitle;
         if (artist && title) {
+          const token = hoverPreviewTokenRef.current;
           warmTrackPreview(
             { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
             node.data.entityId,
             {
               autoplay: true,
               source: "ghost-tap-fetch",
+              requestToken: token,
               nowPlayingEntity: buildPreviewNowPlayingEntity(
                 { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
                 node.data.entityId, null, node.data.artworkUrl || ""
@@ -2098,12 +2155,14 @@ useEffect(() => {
                   const artist = node.data.trackArtist;
                   const title = node.data.trackTitle;
                   if (artist && title) {
+                    const token = hoverPreviewTokenRef.current;
                     warmTrackPreview(
                       { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
                       node.data.entityId,
                       {
                         autoplay: true,
                         source: "ghost-hover-fetch",
+                        requestToken: token,
                         nowPlayingEntity: buildPreviewNowPlayingEntity(
                           { artist, title, album: node.data.trackAlbum || "", artworkUrl: node.data.artworkUrl || "" },
                           node.data.entityId,

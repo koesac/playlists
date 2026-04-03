@@ -720,6 +720,46 @@ input {
   color: #c4b5fd;
 }
 
+/* ─── Audio unlock hint ─────────────────────────────────────────────── */
+
+/* Only visible before first activation, only on hover, never when already playing */
+body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::after {
+  content: "Click to enable previews";
+  position: absolute;
+  bottom: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.45);
+
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 3px 8px;
+
+  pointer-events: none;
+  z-index: 10;
+
+  /* Fade in only — disappears instantly on unlock */
+  animation: hint-fade-in 200ms ease forwards;
+}
+
+@keyframes hint-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(3px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Ensure ghost-card has a positioning context */
+.ghost-card {
+  position: relative; /* should already be set, confirm */
+}
+
 /* ── Soundwave animation ─────────────────────────────────── */
 
 .soundwave-cluster {
