@@ -273,6 +273,20 @@ function getExistingLibraryTrackIds() {
   return new Set(rows.map(r => r.id));
 }
 
+/**
+ * Find a library node ID by normalized artist and title matching.
+ * @param {string} normalizedArtist - Artist name with spaces/special chars removed, lowercased
+ * @param {string} normalizedTitle - Title with spaces/special chars removed, lowercased
+ * @returns {{id: string}|null}
+ */
+function findLibraryNodeByNormalizedTitle(normalizedArtist, normalizedTitle) {
+  return db.prepare(`
+    SELECT id FROM library_nodes 
+    WHERE REPLACE(LOWER(artist), ' ', '') = ? 
+    AND REPLACE(LOWER(title), ' ', '') = ?
+  `).get(normalizedArtist, normalizedTitle);
+}
+
 function getLibraryGraphData() {
   const nodes = db.prepare(`
     SELECT id, title, artist, kind, bpm, genre, listeners, artwork_url
@@ -322,5 +336,6 @@ module.exports = {
   upsertLibraryNode,
   insertLibraryEdge,
   getExistingLibraryTrackIds,
+  findLibraryNodeByNormalizedTitle,
   getLibraryGraphData
 };

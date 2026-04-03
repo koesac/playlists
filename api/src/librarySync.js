@@ -1,5 +1,14 @@
-const { upsertLibraryNode, insertLibraryEdge, getExistingLibraryTrackIds } = require("./db");
+const { upsertLibraryNode, insertLibraryEdge, getExistingLibraryTrackIds, findLibraryNodeByNormalizedTitle } = require("./db");
 const { lastfmSimilar } = require("./providers");
+
+/**
+ * Normalize a string for matching by removing spaces and special characters.
+ * @param {string} str - The string to normalize
+ * @returns {string} Normalized string (lowercase, alphanumeric only)
+ */
+function normalizeMatch(str = "") {
+  return String(str || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 /**
  * Sync a playlist's tracks to the library graph tables.
@@ -13,11 +22,15 @@ async function syncPlaylistToLibrary(playlistTracks) {
   for (const track of playlistTracks) {
     if (!track || !track.id) continue;
 
+    // Extract title/artist from the track - they can be at top level or nested in raw
+    const trackTitle = track.title || track.raw?.title || track.label || "";
+    const trackArtist = track.artist || track.raw?.artist || track.subtitle || "";
+
     // Upsert the track as a library node
     upsertLibraryNode({
       id: track.id,
-      title: track.title || "",
-      artist: track.artist || "",
+      title: trackTitle,
+      artist: trackArtist,
       kind: track.kind || "track",
       bpm: track.bpm || null,
       genre: track.genre || null,
@@ -26,19 +39,22 @@ async function syncPlaylistToLibrary(playlistTracks) {
     });
 
     // For tracks, fetch similar tracks from Last.fm
-    if (track.kind === "track" && track.artist && track.title) {
+    if (track.kind === "track" && trackArtist && trackTitle) {
       try {
-        const similar = await lastfmSimilar(track.artist, track.title, 50);
+        const similar = await lastfmSimilar(trackArtist, trackTitle, 50);
 
         for (const sim of similar) {
-          // Build a candidate ID for the similar track
-          const simId = sim.trackKey || `lfm:${(sim.artist || "").toLowerCase()}::${(sim.title || "").toLowerCase()}`;
+          // Use SQLite to find the actual track ID based on normalized text matching
+          const match = findLibraryNodeByNormalizedTitle(
+            normalizeMatch(sim.artist),
+            normalizeMatch(sim.title)
+          );
 
-          // Only draw an edge if the similar track already exists in our library
-          if (existingIds.has(simId)) {
+          if (match && match.id !== track.id) {
+            console.log(`[Sync] Found connection: ${trackTitle} by ${trackArtist} <-> ${sim.title} by ${sim.artist}`);
             // Bidirectional edges
-            insertLibraryEdge(track.id, simId, sim.similarity || 0.5);
-            insertLibraryEdge(simId, track.id, sim.similarity || 0.5);
+            insertLibraryEdge(track.id, match.id, sim.similarity || 0.5);
+            insertLibraryEdge(match.id, track.id, sim.similarity || 0.5);
           }
         }
 
@@ -46,7 +62,7 @@ async function syncPlaylistToLibrary(playlistTracks) {
         await new Promise(r => setTimeout(r, 300));
       } catch (err) {
         // Log but continue — one failed track shouldn't block the whole sync
-        console.error(`[librarySync] Failed to fetch similar for "${track.title}" by ${track.artist}:`, err.message);
+        console.error(`[librarySync] Failed to fetch similar for "${trackTitle}" by ${trackArtist}:`, err.message);
       }
     }
   }
