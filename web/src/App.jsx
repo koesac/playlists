@@ -1275,8 +1275,6 @@ useEffect(() => {
       });
       if (selectId) setSelectedId(selectId);
       if (overrideEntity) setNowPlayingOverride(overrideEntity);
-      // Restart the track from the beginning for re-preview
-      audioEl.currentTime = 0;
       return true;
     }
 
