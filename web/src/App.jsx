@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import ThemeToggle from "./ThemeToggle";
 
 async function api(url, options = {}) {
   const opts = { ...options, headers: { ...(options.headers || {}) } };
@@ -1911,6 +1912,10 @@ useEffect(() => {
             )}
 
             {message ? <div className="message-box floating">{message}</div> : null}
+          </div>
+
+          <div className="floating-actions right">
+            <ThemeToggle />
           </div>
 
           <ReactFlow

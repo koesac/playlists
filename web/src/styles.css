@@ -25,11 +25,30 @@
   --shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
 }
 
+/* Light mode variables */
+:root.light {
+  --bg: #f8fafc;
+  --panel: rgba(255, 255, 255, 0.84);
+  --panel-2: rgba(248, 250, 252, 0.92);
+  --border: rgba(148, 163, 184, 0.24);
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #7c3aed;
+  --shadow: 0 24px 60px rgba(2, 6, 23, 0.12);
+}
+
 :root,
 html,
 body,
 #root {
   color-scheme: dark;
+}
+
+:root.light,
+html.light,
+body.light,
+#root.light {
+  color-scheme: light;
 }
 
 * {
@@ -64,8 +83,13 @@ body {
   height: 100%;
   height: 100dvh;
   font-family: Inter, system-ui, Arial, sans-serif;
-  background: radial-gradient(circle at top, #13203b 0%, #020617 58%);
+  background: radial-gradient(circle at top, var(--bg-gradient-start, #13203b) 0%, var(--bg, #020617) 58%);
   color: var(--text);
+  transition: background 0.3s ease;
+}
+
+:root.light body {
+  --bg-gradient-start: #e2e8f0;
 }
 
 button,
@@ -100,6 +124,20 @@ input {
   background: linear-gradient(180deg, rgba(124,58,237,0.75), rgba(14,165,233,0.65));
 }
 
+/* Light mode scrollbar */
+:root.light *::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.03);
+}
+
+:root.light *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(124,58,237,0.45), rgba(14,165,233,0.35));
+  border: 2px solid rgba(0,0,0,0.03);
+}
+
+:root.light *::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(124,58,237,0.65), rgba(14,165,233,0.55));
+}
+
 /* ── Color-scheme overrides ──────────────────────────────── */
 
 .graph-shell,
@@ -108,6 +146,14 @@ input {
 .now-playing-desktop,
 .now-playing-mini {
   color-scheme: dark;
+}
+
+:root.light .graph-shell,
+:root.light .minimal-shell,
+:root.light .search-bar-shell,
+:root.light .now-playing-desktop,
+:root.light .now-playing-mini {
+  color-scheme: light;
 }
 
 .now-playing-mini {
@@ -161,6 +207,11 @@ input {
   backdrop-filter: blur(12px);
 }
 
+:root.light .detail-panel,
+:root.light .playlist-drawer {
+  background: rgba(255, 255, 255, 0.88);
+}
+
 /* ── Floating search (desktop: centered at top) ──────────── */
 
 .floating-search {
@@ -193,6 +244,10 @@ input {
   box-shadow: var(--shadow);
 }
 
+:root.light .search-bar-shell {
+  background: rgba(255, 255, 255, 0.78);
+}
+
 .search-bar-expanded {
   grid-template-columns: minmax(0, 1fr) auto auto auto;
 }
@@ -206,6 +261,10 @@ input {
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.14);
   background: rgba(15, 23, 42, 0.95);
+}
+
+:root.light .search-input-wrap {
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .search-leading-icon {
@@ -241,6 +300,14 @@ input {
   background: rgba(15, 23, 42, 0.96);
 }
 
+:root.light .search-launch-button {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+:root.light .search-launch-button:hover {
+  background: rgba(240, 242, 245, 0.96);
+}
+
 /* ── Buttons & UI elements ───────────────────────────────── */
 
 .search-go,
@@ -255,6 +322,16 @@ input {
   color: var(--text);
   border-radius: 14px;
   cursor: pointer;
+}
+
+:root.light .search-go,
+:root.light .icon-button,
+:root.light .ui-button,
+:root.light .link-pill,
+:root.light .opened-card,
+:root.light .result-chip,
+:root.light .entity-playlist-button {
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .search-go {
@@ -274,6 +351,11 @@ input {
   box-shadow: inset 0 0 0 1px rgba(124,58,237,0.3);
 }
 
+:root.light .icon-button.active {
+  border-color: rgba(124,58,237,0.6);
+  box-shadow: inset 0 0 0 1px rgba(124,58,237,0.25);
+}
+
 /* ── Popovers & flyouts ──────────────────────────────────── */
 
 .help-popover,
@@ -285,6 +367,12 @@ input {
   backdrop-filter: blur(12px);
   position: relative;
   z-index: 1;
+}
+
+:root.light .help-popover,
+:root.light .result-flyout,
+:root.light .message-box.floating {
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .help-popover {
@@ -374,6 +462,11 @@ input {
   top: 14px;
   right: 14px;
   z-index: 20;
+  pointer-events: auto !important;
+}
+
+.floating-actions.right .theme-toggle {
+  pointer-events: auto !important;
 }
 
 /* ── React Flow ──────────────────────────────────────────── */
@@ -385,6 +478,10 @@ input {
 
 .react-flow__edge-text {
   fill: #94a3b8 !important;
+}
+
+:root.light .react-flow__edge-text {
+  fill: #64748b !important;
 }
 
 .react-flow__edge-textbg {
@@ -401,6 +498,11 @@ input {
   z-index: 9999;
 }
 
+:root.light .react-flow__controls {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.1);
+}
+
 .react-flow__controls-button {
   width: 36px;
   height: 36px;
@@ -408,8 +510,16 @@ input {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
+:root.light .react-flow__controls-button {
+  background: rgba(255, 255, 255, 0.94);
+}
+
 .react-flow__controls-button:hover {
   background: rgba(30, 41, 59, 0.95);
+}
+
+:root.light .react-flow__controls-button:hover {
+  background: rgba(240, 242, 245, 0.95);
 }
 
 .react-flow__controls-button svg {
@@ -426,8 +536,17 @@ input {
   z-index: 9999;
 }
 
+:root.light .react-flow__minimap {
+  background: rgba(240, 242, 245, 0.8) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.1);
+}
+
 .react-flow__minimap-mask {
   fill: rgba(124, 58, 237, 0.12);
+}
+
+:root.light .react-flow__minimap-mask {
+  fill: rgba(124, 58, 237, 0.18);
 }
 
 .react-flow__panel.react-flow__attribution {
@@ -444,6 +563,12 @@ input {
   border-radius: 18px;
 }
 
+:root.light .entity-card,
+:root.light .detail-card,
+:root.light .ghost-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 242, 245, 0.96));
+}
+
 .entity-card {
   width: 292px;
   min-height: 154px;
@@ -454,13 +579,25 @@ input {
   overflow: visible;
 }
 
+:root.light .entity-card {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+}
+
 .entity-card.selected {
   box-shadow: 0 0 0 2px rgba(255,255,255,0.06), 0 20px 45px rgba(2, 6, 23, 0.45);
+}
+
+:root.light .entity-card.selected {
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.06), 0 20px 45px rgba(2, 6, 23, 0.12);
 }
 
 .entity-card.in-playlist {
   outline: 2px solid rgba(245, 158, 11, 0.95);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18), 0 20px 45px rgba(2, 6, 23, 0.45);
+}
+
+:root.light .entity-card.in-playlist {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18), 0 20px 45px rgba(2, 6, 23, 0.12);
 }
 
 .entity-card.is-playing::after {
@@ -513,11 +650,21 @@ input {
   background: rgba(255,255,255,0.04);
 }
 
+:root.light .entity-artwork,
+:root.light .detail-artwork,
+:root.light .drawer-artwork {
+  background: rgba(0,0,0,0.04);
+}
+
 .entity-artwork {
   width: 68px;
   height: 68px;
   border-radius: 14px;
   box-shadow: 0 10px 24px rgba(2, 6, 23, 0.35);
+}
+
+:root.light .entity-artwork {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
 }
 
 .detail-artwork {
@@ -619,6 +766,10 @@ input {
   font-size: 12px;
 }
 
+:root.light .chip {
+  background: rgba(0,0,0,0.04);
+}
+
 /* ── Ghost cards ─────────────────────────────────────────── */
 
 .ghost-card {
@@ -629,6 +780,11 @@ input {
   background: rgba(8, 17, 32, 0.9);
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
   position: relative;
+}
+
+:root.light .ghost-card {
+  background: rgba(240, 242, 245, 0.9);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
 }
 
 .ghost-card.new {
@@ -643,6 +799,10 @@ input {
 .ghost-card.is-playing {
   border-color: rgba(34, 211, 238, 0.55);
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
+}
+
+:root.light .ghost-card.is-playing {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 18px 40px rgba(0, 0, 0, 0.1);
 }
 
 .ghost-card.is-playing::after {
@@ -681,6 +841,11 @@ input {
   box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.25), 0 18px 40px rgba(2, 6, 23, 0.4);
 }
 
+:root.light .ghost-card.hover-preview:hover,
+:root.light .entity-card.kind-track:hover {
+  box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.35), 0 18px 40px rgba(0, 0, 0, 0.1);
+}
+
 /* ── Node handles ────────────────────────────────────────── */
 
 .handle {
@@ -706,7 +871,6 @@ input {
   opacity: 0.78;
 }
 
-/* ── Now-playing overlay ─────────────────────────────────── */
 /* ── Now-playing overlay ─────────────────────────────────── */
 
 .now-playing-overlay {
@@ -735,6 +899,11 @@ input {
   box-shadow: 0 -10px 28px rgba(2, 6, 23, 0.38);
 }
 
+:root.light .now-playing-desktop {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 242, 245, 0.99));
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.08);
+}
+
 .now-playing-topline {
   display: none;
 }
@@ -744,7 +913,6 @@ input {
   animation: nowPlayingBlink 1.2s ease-in-out infinite;
 }
 
-/* ── fix: display:grid was dropped in last edit ─────────── */
 .now-playing-hero {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
@@ -782,9 +950,6 @@ input {
   line-height: 1.1;
 }
 
-
-/* ── Audio element: themed — replaces the filter:invert hack ─ */
-
 .now-playing-audio {
   width: 100%;
   height: 32px;
@@ -797,50 +962,18 @@ input {
   border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-/* Panel background */
+:root.light .now-playing-audio {
+  background: rgba(0, 0, 0, 0.04);
+}
+
 .now-playing-audio::-webkit-media-controls-panel {
   background: rgba(8, 17, 32, 0.98);
   border-radius: 10px;
   padding: 0 2px;
 }
 
-/* Play / mute buttons: make dark SVG icons visible on dark bg */
-.now-playing-audio::-webkit-media-controls-play-button,
-.now-playing-audio::-webkit-media-controls-mute-button {
-  filter: brightness(10);
-  opacity: 0.6;
-  border-radius: 999px;
-}
-
-.now-playing-audio::-webkit-media-controls-play-button:hover,
-.now-playing-audio::-webkit-media-controls-mute-button:hover {
-  opacity: 1;
-  background-color: rgba(124, 58, 237, 0.2);
-}
-
-/* Seek / timeline track */
-.now-playing-audio::-webkit-media-controls-timeline {
-  background: rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
-  height: 3px;
-  margin: 0 4px;
-  padding: 0;
-}
-
-/* Volume slider track */
-.now-playing-audio::-webkit-media-controls-volume-slider {
-  background: rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
-  padding-inline: 2px;
-}
-
-/* Timestamps */
-.now-playing-audio::-webkit-media-controls-current-time-display,
-.now-playing-audio::-webkit-media-controls-time-remaining-display {
-  color: #94a3b8;
-  font-size: 11px;
-  font-family: Inter, system-ui, sans-serif;
-  text-shadow: none;
+:root.light .now-playing-audio::-webkit-media-controls-panel {
+  background: rgba(255, 255, 255, 0.98);
 }
 
 /* ── Mini toggle glyph ───────────────────────────────────── */
@@ -946,6 +1079,10 @@ input {
   backdrop-filter: none;
 }
 
+:root.light .minimal-drawer {
+  background: rgba(255, 255, 255, 0.92);
+}
+
 /* ── Collapsed / closed panel shared states ──────────────── */
 
 .minimal-detail.collapsed,
@@ -984,6 +1121,16 @@ input {
   background: rgba(15, 23, 42, 0.92);
   box-shadow: var(--shadow);
   border-radius: 14px;
+}
+
+:root.light .minimal-detail.collapsed .panel-toggle-button,
+:root.light .minimal-drawer.closed .panel-toggle-button {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:root.light .minimal-detail.collapsed,
+:root.light .minimal-drawer.closed {
+  background: transparent !important;
 }
 
 /* ── Panel togglebars ────────────────────────────────────── */
@@ -1050,6 +1197,10 @@ input {
   box-shadow: var(--shadow);
 }
 
+:root.light .studio-title-bar {
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .studio-title-input {
   flex: 1;
   min-width: 0;
@@ -1078,6 +1229,10 @@ input {
   background: var(--accent);
   color: white;
   border-color: transparent;
+}
+
+:root.light .save-studio-button {
+  background: rgba(240, 242, 245, 0.8);
 }
 
 .save-studio-button.saving {
@@ -1175,6 +1330,10 @@ input {
   background: rgba(255,255,255,0.04);
 }
 
+:root.light .ui-button.secondary {
+  background: rgba(0,0,0,0.04);
+}
+
 .ui-button.active {
   border-color: rgba(245, 158, 11, 0.85);
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
@@ -1216,8 +1375,17 @@ input {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+:root.light .drawer-track {
+  background: rgba(240, 242, 245, 0.84);
+}
+
 .drawer-track:hover {
   background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(124, 58, 237, 0.35);
+}
+
+:root.light .drawer-track:hover {
+  background: rgba(226, 232, 240, 0.9);
   border-color: rgba(124, 58, 237, 0.35);
 }
 
@@ -1270,6 +1438,10 @@ input {
   border-radius: 16px;
   border: 1px dashed rgba(148, 163, 184, 0.24);
   background: rgba(15, 23, 42, 0.55);
+}
+
+:root.light .empty-drawer {
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* ── Playlist drawer footer ──────────────────────────────── */
@@ -1329,6 +1501,11 @@ input {
   -webkit-overflow-scrolling: touch;
 }
 
+:root.light .drafts-overlay {
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.1);
+}
+
 .drafts-overlay-header {
   display: flex;
   align-items: center;
@@ -1363,6 +1540,10 @@ input {
     max-height: 70vh;
     z-index: 500;
     border-radius: 18px;
+  }
+
+  :root.light .drafts-overlay {
+    background: rgba(255, 255, 255, 0.98);
   }
 }
 
@@ -1410,6 +1591,10 @@ input {
   border-color: rgba(34, 197, 94, 0.3);
 }
 
+:root.light .add-new-studio {
+  background: rgba(34, 197, 94, 0.08);
+}
+
 .result-artwork-placeholder {
   width: 52px;
   height: 52px;
@@ -1419,6 +1604,10 @@ input {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 14px;
   color: var(--muted);
+}
+
+:root.light .result-artwork-placeholder {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .delete-draft-button {
@@ -1496,7 +1685,6 @@ input {
 @media (max-width: 900px) {
 
   .search-bar-expanded {
-    /* Drop the "Go" button column on small screens */
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
@@ -1504,7 +1692,6 @@ input {
     display: none;
   }
 
-  /* Floating actions: move to bottom-right, above now-playing */
   .floating-actions.right {
     top: auto;
     right: 10px;
@@ -1532,6 +1719,11 @@ input {
 
   .now-playing-mini.is-active {
     display: grid;
+  }
+
+  :root.light .now-playing-mini {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.1);
   }
 
   .now-playing-main {
@@ -1590,11 +1782,14 @@ input {
     color: var(--text);
   }
 
+  :root.light .now-playing-mini-toggle {
+    background: rgba(0, 0, 0, 0.08);
+  }
+
   .now-playing-audio {
     display: none !important;
   }
 
-  /* Detail panel: full-screen on mobile, slides in from right */
   .minimal-detail {
     top: 0;
     left: 0;
@@ -1606,15 +1801,13 @@ input {
     background: var(--bg);
     border-left: none;
     border-radius: 0;
-    /* Reset desktop slide-out transform — open state fills screen */
     transform: none;
   }
 
-  /*
-   * When detail is collapsed on mobile, only the toggle button is shown
-   * at top-right. z-index 300 ensures it sits ABOVE the open detail panel
-   * (z-index 200) and the open drawer (z-index 80), so it's always tappable.
-   */
+  :root.light .minimal-detail {
+    background: var(--bg);
+  }
+
   .minimal-detail.collapsed {
     top: 14px;
     right: 14px;
@@ -1628,31 +1821,36 @@ input {
     z-index: 300;
   }
 
-  /*
-   * Playlist drawer: narrowed so the detail toggle button at top-right
-   * stays clear; room = 48px button + 14px gap + 14px edge = ~76px.
-   */
-.minimal-drawer {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 80;
-  width: min(340px, calc(100vw - 28px));
-  max-height: calc(100vh - 160px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  background: rgba(8, 17, 32, 0.88);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  transition: opacity 180ms ease, transform 180ms ease;
-  backdrop-filter: blur(12px);
-  box-shadow: var(--shadow);
-  touch-action: pan-y;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
-}
+  .minimal-drawer {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 80;
+    width: min(340px, calc(100vw - 28px));
+    max-height: calc(100vh - 160px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    background: rgba(8, 17, 32, 0.88);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    transition: opacity 180ms ease, transform 180ms ease;
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow);
+    touch-action: pan-y;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch; /* restores momentum scroll on iOS */
+  }
+
+  :root.light .minimal-drawer {
+    background: rgba(255, 255, 255, 0.88);
+  }
+
+  :root.light .minimal-detail.collapsed,
+  :root.light .minimal-drawer.closed {
+    background: transparent !important;
+  }
 
   .react-flow__minimap {
     z-index: 9999 !important;
@@ -1736,5 +1934,11 @@ input {
   .search-bar-shell {
     backdrop-filter: none;
     background: rgba(8, 17, 32, 0.97); /* compensate with opacity */
+  }
+
+  :root.light .minimal-detail,
+  :root.light .minimal-drawer,
+  :root.light .search-bar-shell {
+    background: rgba(255, 255, 255, 0.97);
   }
 }
