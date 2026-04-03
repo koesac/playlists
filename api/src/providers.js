@@ -393,6 +393,19 @@ async function lastfmArtistTopTracks(artist, limit = 18) {
   }));
 }
 
+async function lastfmArtistTopAlbums(artist, limit = 12) {
+  const json = await lastfmRequest(
+    { method: "artist.getTopAlbums", artist, limit },
+    `lfmartisttopalbums:${artist}:${limit}`
+  );
+  return (json?.topalbums?.album || []).map((a) => ({
+    name: a.name,
+    artist,
+    playcount: Number(a.playcount || 0),
+    artworkUrl: bestLastfmImage(a.image),
+  }));
+}
+
 async function lastfmTagTopTracks(tag, limit = 12) {
   const json = await lastfmRequest(
     { method: "tag.getTopTracks", tag, limit },
@@ -560,10 +573,11 @@ async function hydrateSearchResults(tracks) {
 }
 
 async function getArtistDetail(name) {
-  const [artistInfo, topTracks, mbTracks] = await Promise.all([
+  const [artistInfo, topTracks, mbTracks, topAlbums] = await Promise.all([
     lastfmArtistInfo(name),
     lastfmArtistTopTracks(name, 24),
-    getArtistTracks(name, 24)
+    getArtistTracks(name, 24),
+    lastfmArtistTopAlbums(name, 12)
   ]);
 
   const tunedTracks = filterRecommendationTracks(
@@ -579,7 +593,8 @@ async function getArtistDetail(name) {
       tags: (artistInfo?.tags?.tag || []).slice(0, 8).map((t) => t.name),
       listeners: Number(artistInfo?.stats?.listeners || 0),
       playcount: Number(artistInfo?.stats?.playcount || 0),
-      artworkUrl: bestLastfmImage(artistInfo?.image || []) || null
+      artworkUrl: bestLastfmImage(artistInfo?.image || []) || null,
+      albums: topAlbums
     },
     tracks: tunedTracks
   };
@@ -635,7 +650,9 @@ async function getTrackDetail({ artist, title, album }) {
     seedArtist: artist,
     seedTitle: title,
     excludeSeedArtist: true
-  }).slice(0, 8);
+  })
+    .sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+    .slice(0, 12);
 
   const tunedArtistTracks = filterRecommendationTracks(
     topArtistTracks.length ? [...topArtistTracks, ...fallbackArtistTracks] : fallbackArtistTracks,

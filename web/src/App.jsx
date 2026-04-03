@@ -43,6 +43,22 @@ function entityColor(kind) {
   }[kind] || "#94a3b8";
 }
 
+function ghostAccentColor(relation) {
+  const map = {
+    'related-track':  'a78bfa',  // violet — similar tracks
+    'artist-track':   '0ea5e9',  // cyan   — matches artist node color
+    'album-track':    'f59e0b',  // amber  — matches album node color
+    'track':          '94a3b8',  // gray   — generic from artist/album
+    'top-track':      'a78bfa',  // violet — genre top tracks
+    'top-artist':     '0ea5e9',  // cyan
+    'top-album':      'f59e0b',  // amber
+    'genre':          '22c55e',  // green
+    'artist':         '0ea5e9',  // cyan
+    'album':          'f59e0b',  // amber
+  };
+  return map[relation] ?? '94a3b8';
+}
+
 function stripHtml(text) {
   return String(text || "")
     .replace(/<[^>]+>/g, " ")
@@ -228,7 +244,7 @@ function normalizeTrackEntity(track, detail = null) {
   if (track.artist) links.push({ id: artistNodeId(track.artist), relation: "artist", label: track.artist, kind: "artist", artist: track.artist });
   if (track.album) links.push({ id: albumNodeId(track.artist, track.album), relation: "album", label: track.album, kind: "album", artist: track.artist, album: track.album });
   tags.slice(0, 6).forEach((tag) => links.push({ id: genreNodeId(tag), relation: "genre", label: tag, kind: "genre", tag }));
-  (detail?.similar || []).slice(0, 10).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "related-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item }));
+  [...(detail?.similar || [])].sort((a, b) => (b.similarity || 0) - (a.similarity || 0)).slice(0, 10).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "related-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item, similarity: item.similarity || 0 }));
   (detail?.artistTracks || []).slice(0, 8).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "artist-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item }));
   (detail?.albumTracks || []).slice(0, 12).forEach((item) => item.title && item.artist && links.push({ id: trackNodeId(item), relation: "album-track", label: `${item.title} · ${item.artist}`, kind: "track", payload: item }));
   return {
@@ -261,9 +277,21 @@ function normalizeArtistEntity(artist, detail = null) {
   (detail?.tracks || []).slice(0, 16).forEach((track) => {
     if (!track.title || !track.artist) return;
     links.push({ id: trackNodeId(track), relation: "track", label: `${track.title} · ${track.artist}`, kind: "track", payload: track });
-    if (track.album) links.push({ id: albumNodeId(track.artist, track.album), relation: "album", label: track.album, kind: "album", artist: track.artist, album: track.album });
   });
   tags.slice(0, 8).forEach((tag) => links.push({ id: genreNodeId(tag), relation: "genre", label: tag, kind: "genre", tag }));
+  (detail?.artist?.albums || []).slice(0, 10).forEach((album) => {
+    if (!album.name) return;
+    links.push({
+      id: albumNodeId(artist.name, album.name),
+      relation: "album",
+      label: album.name,
+      kind: "album",
+      artist: artist.name,
+      album: album.name,
+      payload: album,
+      listeners: album.playcount || 0,
+    });
+  });
   return {
     id,
     kind: "artist",
@@ -321,31 +349,73 @@ function normalizeGenreEntity(detail, fallbackTag = "") {
   };
 }
 
-function radialOffset(index, total, baseRadius = 300) {
-  const perRing = 6;
-  const ring = Math.floor(index / perRing);
-  const slot = index % perRing;
-  const slotsInRing = Math.min(perRing, Math.max(total - ring * perRing, 1));
-  const angle = (-Math.PI / 2) + (slot * (Math.PI * 2 / slotsInRing)) + (ring % 2 ? Math.PI / slotsInRing : 0);
-  const radius = baseRadius + (ring * 150);
-  return {
-    x: Math.cos(angle) * radius,
-    y: Math.sin(angle) * (radius * 0.88)
-  };
+// Directional sectors per relation — angles in radians from positive x-axis
+const SECTOR_CENTER = {
+  'related-track':  0,                  // → right
+  'artist-track':   Math.PI,            // ← left
+  'album-track':    Math.PI * 0.65,     // ↙ below-left
+  'genre':         -Math.PI * 0.5,      // ↑ above
+  'artist':        -Math.PI * 0.72,     // ↖ upper-left
+  'track':          0.3,                // slight right
+  'top-track':      0,
+  'top-artist':     Math.PI,
+  'top-album':      Math.PI * 0.5,      // ↓ below
+};
+
+const SECTOR_SPREAD = {
+  'related-track':  Math.PI * 0.55,     // widest — most items
+  'artist-track':   Math.PI * 0.45,
+  'album-track':    Math.PI * 0.45,
+  'genre':          Math.PI * 0.4,
+  'artist':         0.4,
+  'album':          0.5,
+  'track':          Math.PI * 0.4,
+  'top-track':      Math.PI * 0.5,
+  'top-artist':     Math.PI * 0.4,
+  'top-album':      Math.PI * 0.5,
+};
+
+function sectorOffset(relation, indexInSector, totalInSector, baseRadius = 320, weight = 1.0) {
+  const centerAngle = SECTOR_CENTER[relation] ?? 0;
+  const spread      = SECTOR_SPREAD[relation]  ?? (Math.PI * 0.4);
+  const n           = Math.max(totalInSector, 1);
+
+  // Spread items evenly across the sector arc
+  const angleStep = n > 1 ? spread / (n - 1) : 0;
+  const angle     = centerAngle - spread / 2 + indexInSector * angleStep;
+
+  // Similarity-based distance: higher similarity (weight→1) = closer to node
+  let radius = baseRadius;
+  if (relation === 'related-track' && weight > 0) {
+    radius = baseRadius * (0.5 + 0.5 * (1 - weight));
+  }
+
+  // Multi-row overflow: push extra items outward in concentric arcs
+  const itemsPerRow = Math.max(Math.ceil(n / 2), 4);
+  const row = Math.floor(indexInSector / itemsPerRow);
+  radius += row * 150;
+
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.88 };
 }
 
-function resolveGhostPosition(parentNode, stableNodes, plannedPositions, index, total) {
-  let tries = 0;
-  let candidate = { x: parentNode.position.x, y: parentNode.position.y };
-  while (tries < 10) {
-    const offset = radialOffset(index, total, 300 + tries * 80);
-    candidate = { x: parentNode.position.x + offset.x, y: parentNode.position.y + offset.y };
-    const collidesWithStable = stableNodes.some((node) => distance(candidate, node.position) < Math.max(entityFootprint(node), 230));
-    const collidesWithPlanned = plannedPositions.some((position) => distance(candidate, position) < 220);
-    if (!collidesWithStable && !collidesWithPlanned) return candidate;
-    tries += 1;
+function nudgeFromCollision(rawPos, anchorPos, stableNodes, plannedPositions) {
+  let candidate = rawPos;
+  for (let tries = 0; tries < 14; tries++) {
+    const hitStable  = stableNodes.some(n => distance(candidate, n.position) < Math.max(entityFootprint(n), 220));
+    const hitPlanned = plannedPositions.some(p => distance(candidate, p) < 210);
+    if (!hitStable && !hitPlanned) return candidate;
+    // Push radially outward from the anchor
+    const dx = candidate.x - anchorPos.x || 1;
+    const dy = candidate.y - anchorPos.y || 0;
+    const d = Math.hypot(dx, dy);
+    candidate = { x: candidate.x + (dx / d) * 55, y: candidate.y + (dy / d) * 55 };
   }
   return candidate;
+}
+
+function resolveGhostPosition(parentNode, stableNodes, plannedPositions, rawCandidate) {
+  const anchorPos = parentNode.position;
+  return nudgeFromCollision(rawCandidate, anchorPos, stableNodes, plannedPositions);
 }
 
 function resolveOpenedNodePosition(anchor, blockedNodes, blockedPositions = [], preferredIndex = 0) {
@@ -461,10 +531,20 @@ function GraphNode({ data, selected }) {
 }
 
 function GhostNode({ data }) {
+  const simPct = data.similarity > 0 ? Math.round(data.similarity * 100) : null;
+  const pop = data.listeners > 0 ? formatCompactNumber(data.listeners) : null;
+
   return (
-    <div className={`ghost-card kind-${data.kind} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""} ${data.isPlaying ? "is-playing" : ""}`} style={{ "--accent": entityColor(data.kind) }}>
+    <div className={`ghost-card kind-${data.kind} relation-${data.relation} ${data.opened ? "opened" : "new"} ${data.kind === "track" ? "hover-preview" : ""} ${data.isPlaying ? "is-playing" : ""}`} style={{ "--accent": `#${ghostAccentColor(data.relation)}` }}>
       <div className="ghost-kind">{data.relation}</div>
       <div className="ghost-label">{data.label}</div>
+      {(data.rank || simPct || pop) && (
+        <div className="ghost-meta">
+          {data.rank && <span className="ghost-badge rank">#{data.rank}</span>}
+          {simPct && <span className="ghost-badge sim">{simPct}%</span>}
+          {pop && <span className="ghost-badge pop">{pop}</span>}
+        </div>
+      )}
       {data.isPlaying && data.kind === "track" && (
         <div className="ghost-tap-hint">Tap again to add ›</div>
       )}
@@ -646,7 +726,7 @@ function FlowApp() {
 const isTouchDeviceRef = useRef(
   typeof window !== "undefined" && window.matchMedia("(hover: none)").matches
 );
-  const { screenToFlowPosition, setCenter, getViewport, setViewport, fitView } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getViewport, setViewport } = useReactFlow();
 
   // Keep a stable ref to getViewport (it changes identity every render)
   useEffect(() => {
@@ -946,14 +1026,25 @@ const handleMiniPlayToggle = (event) => {
       if (saved.currentDraftId) setCurrentDraftId(saved.currentDraftId);
       seeded.current = true;
 
-      // After nodes are rendered, fit the view to show all restored nodes
+      // After nodes are rendered, pan to show all restored nodes
       // Use setTimeout to ensure ReactFlow has fully rendered the nodes
       setTimeout(() => {
-        fitView({ padding: 0.18, duration: 300 });
+        const persistentNodes = (saved.nodes || []).filter((node) => !String(node.id).startsWith("ghost:"));
+        if (persistentNodes.length === 0) return;
+        const minX = Math.min(...persistentNodes.map((n) => n.position.x));
+        const maxX = Math.max(...persistentNodes.map((n) => n.position.x));
+        const minY = Math.min(...persistentNodes.map((n) => n.position.y));
+        const maxY = Math.max(...persistentNodes.map((n) => n.position.y));
+        const centerX = (minX + maxX) / 2 + 140;
+        const centerY = (minY + maxY) / 2 + 80;
+        setCenter(centerX, centerY, {
+          zoom: Math.max(saved.viewport?.zoom || 0.6, 0.6),
+          duration: 320
+        });
       }, 100);
     } catch {
     }
-  }, [setNodes, setEdges, fitView]);
+  }, [setNodes, setEdges, setCenter]);
 
 
   const togglePlaylist = useCallback((entity) => {
@@ -1689,7 +1780,8 @@ useEffect(() => {
     const sourceEntity = entityMap[sourceId];
     const list = sourceEntity?.links || [];
     const index = Math.max(list.findIndex((item) => item.id === link.id && item.relation === link.relation), 0);
-    const offset = radialOffset(index, list.length, 360);
+    const totalInSector = list.filter((item) => item.relation === link.relation).length;
+    const offset = sectorOffset(link.relation, index, totalInSector, 360, link.similarity || 0);
     const anchor = { x: sourceNode.position.x + offset.x, y: sourceNode.position.y + offset.y };
     return resolveOpenedNodePosition(anchor, blockedNodes, [], index);
   }, [entityMap, nodes, centerFlowPosition]);
@@ -1719,17 +1811,37 @@ useEffect(() => {
 
   const revealGhosts = useCallback((entityId) => {
     const entity = entityMap[entityId];
-    const parentNode = nodes.find((node) => node.id === entityId);
+    const parentNode = nodes.find((n) => n.id === entityId);
     if (!entity || !parentNode) return;
-    const stableNodes = nodes.filter((node) => !String(node.id).startsWith("ghost:") && node.id !== entityId);
+
+    const stableNodes = nodes.filter((n) => !n.id.startsWith("ghost:") && n.id !== entityId);
     const plannedPositions = [];
-    const visibleLinks = visibleLinksForEntity(entityId).slice(0, 18);
+
+    // Segment all visible links by relation group
+    const allLinks = visibleLinksForEntity(entityId);
+    const structural = allLinks.filter((l) => ["artist", "album"].includes(l.relation)).slice(0, 10);
+    const similar = allLinks.filter((l) => l.relation === "related-track").slice(0, 10);
+    const genres = allLinks.filter((l) => l.kind === "genre").slice(0, 6);
+    const artistTracks = allLinks.filter((l) => l.relation === "artist-track").slice(0, 10);
+    const albumTracks = allLinks.filter((l) => l.relation === "album-track").slice(0, 10);
+    const genericTracks = allLinks.filter((l) => l.relation === "track").slice(0, 8);
+
+    // Check if the artist entity node is already on the canvas
+    // If so, anchor artist-track ghosts to it instead of the parent track node
+    const artistLink = structural.find((l) => l.kind === "artist");
+    const artistCanvasNodeId = artistLink ? findCanvasNodeForLink(artistLink, entityId) : null;
+    const artistAnchorNode = artistCanvasNodeId ? nodes.find((n) => n.id === artistCanvasNodeId) : null;
+
     preloadTrackLinks(entity);
-    const ghostNodes = visibleLinks.map((link, index) => {
-      const position = resolveGhostPosition(parentNode, stableNodes, plannedPositions, index, visibleLinks.length);
+
+    // Helper: build a ghost node for one link with sector-based positioning
+    function makeGhost(link, indexInSector, totalInSector, anchorNode, weight) {
+      const offset = sectorOffset(link.relation, indexInSector, totalInSector, 320, weight ?? 1.0);
+      const rawPos = { x: anchorNode.position.x + offset.x, y: anchorNode.position.y + offset.y };
+      const position = nudgeFromCollision(rawPos, anchorNode.position, stableNodes, plannedPositions);
       plannedPositions.push(position);
       return {
-        id: `ghost:${entityId}:${link.id}:${link.relation}`,
+        id: `ghost::${entityId}::${link.id}::${link.relation}`,
         type: "ghost",
         position,
         draggable: false,
@@ -1737,31 +1849,62 @@ useEffect(() => {
         data: {
           entityId: link.id,
           parentId: entityId,
+          edgeSourceId: anchorNode.id, // may differ from entityId for artist-track
           relation: link.relation,
           label: link.label,
           kind: link.kind,
+          similarity: link.similarity ?? null,
+          rank: link.rank ?? null,
+          listeners: link.payload?.listeners ?? 0,
           opened: Boolean(findCanvasNodeForLink(link, entityId) || entityMap[link.id]?.loaded),
           inPlaylist: playlistIds.includes(link.id),
-          previewUrl: link.payload?.previewUrl || entityMap[findCanvasNodeForLink(link, entityId)]?.previewUrl || entityMap[link.id]?.previewUrl || previewCache[linkCanonicalKey(link, entity) || ""] || "",
-          trackArtist: link.payload?.artist || link.artist || "",
-          trackTitle: link.payload?.title || link.label?.split(" · ")[0] || "",
-          trackAlbum: link.payload?.album || link.album || "",
-          onTogglePlaylist: togglePlaylist
-        }
+          previewUrl:
+            link.payload?.previewUrl ??
+            entityMap[findCanvasNodeForLink(link, entityId)]?.previewUrl ??
+            entityMap[link.id]?.previewUrl ??
+            previewCache[linkCanonicalKey(link, entity)] ??
+            null,
+          trackArtist: link.payload?.artist ?? link.artist,
+          trackTitle: link.payload?.title ?? link.label?.split("\n")[0],
+          trackAlbum: link.payload?.album,
+          onTogglePlaylist: togglePlaylist,
+        },
       };
-    });
-    setNodes((current) => [...current.filter((node) => !String(node.id).startsWith("ghost:")), ...ghostNodes]);
+    }
+
+    const ghostNodes = [
+      ...structural.map((l, i) => makeGhost(l, i, structural.length, parentNode, null)),
+      ...similar.map((l, i) => makeGhost(l, i, similar.length, parentNode, l.similarity ?? 0.5)),
+      ...genres.map((l, i) => makeGhost(l, i, genres.length, parentNode, null)),
+      // Artist tracks: anchor to artist canvas node if present, otherwise use parent
+      ...artistTracks.map((l, i) => makeGhost(l, i, artistTracks.length, artistAnchorNode ?? parentNode, null)),
+      ...albumTracks.map((l, i) => makeGhost(l, i, albumTracks.length, parentNode, null)),
+      ...genericTracks.map((l, i) => makeGhost(l, i, genericTracks.length, parentNode, null)),
+    ];
+
+    setNodes((current) => [...current.filter((n) => !n.id.startsWith("ghost:")), ...ghostNodes]);
+
     setEdges((current) => {
-      const filtered = current.filter((edge) => !String(edge.id).startsWith("ghost-edge:"));
-      const ghostEdges = visibleLinks.map((link) => ({
-        id: `ghost-edge:${entityId}:${link.id}:${link.relation}`,
-        source: entityId,
-        target: `ghost:${entityId}:${link.id}:${link.relation}`,
-        animated: !findCanvasNodeForLink(link, entityId),
-        style: { stroke: entityColor(link.kind), strokeDasharray: findCanvasNodeForLink(link, entityId) ? "0" : "6 6", opacity: 0.85, strokeWidth: 2 }
+      const filtered = current.filter((e) => !e.id.startsWith("ghost-edge:"));
+      const ghostEdges = ghostNodes.map((gn) => ({
+        id: `ghost-edge::${gn.data.edgeSourceId}::${gn.id}`,
+        source: gn.data.edgeSourceId, // artist-track edges source from artist node
+        target: gn.id,
+        animated: !findCanvasNodeForLink(
+          entity.links.find((l) => l.id === gn.data.entityId && l.relation === gn.data.relation),
+          entityId
+        ),
+        style: {
+          stroke: `#${ghostAccentColor(gn.data.relation)}`,
+          strokeDasharray: gn.data.opened ? "0" : "0 6 6",
+          opacity: 0.7,
+          strokeWidth: 1.5,
+        },
+        labelShowBg: false,
       }));
       return [...filtered, ...ghostEdges];
     });
+
   }, [entityMap, nodes, playlistIds, setEdges, setNodes, togglePlaylist, findCanvasNodeForLink, previewCache, preloadTrackLinks, visibleLinksForEntity]);
 
   const loadTrack = useCallback(async (track, sourceId = "", relation = "") => {
@@ -1830,7 +1973,7 @@ useEffect(() => {
         return;
       }
       if (link.kind === "track" && link.payload) {
-        const ghostNodeId = `ghost:${sourceId}:${link.id}:${link.relation}`;
+        const ghostNodeId = `ghost::${sourceId}::${link.id}::${link.relation}`;
         const ghostNode = nodes.find((n) => n.id === ghostNodeId);
         const cachedPreview = ghostNode?.data?.entityId ? previewCache[linkCanonicalKey(link, entityMap[sourceId]) || ""] : null;
         const seededTrack = {
@@ -2211,8 +2354,6 @@ useEffect(() => {
               clearGhosts();
               setSearchOpen(false);
             }}
-            fitView
-            fitViewOptions={{ padding: 0.18 }}
             minZoom={0.25}
             maxZoom={1.8}
             proOptions={{ hideAttribution: true }}
@@ -2370,12 +2511,30 @@ useEffect(() => {
 
                   <div className="detail-card secondary-card slim-section">
                     <div className="link-list compact-list">
-                      {visibleLinksForEntity(selectedEntity.id).slice(0, 18).map((link) => (
-                        <button key={`${selectedEntity.id}:${link.id}:${link.relation}`} className={`link-pill link-${link.kind} ${findCanvasNodeForLink(link, selectedEntity.id) ? "opened" : "pending"}`} onClick={() => openLink(selectedEntity.id, link)}>
-                          <span>{link.relation}</span>
-                          <strong>{link.label}</strong>
-                        </button>
-                      ))}
+                      {(() => {
+                        const allLinks = visibleLinksForEntity(selectedEntity.id).slice(0, 30);
+                        const groups = [
+                          { label: 'Similar Tracks',  links: allLinks.filter(l => l.relation === 'related-track') },
+                          { label: 'By This Artist',  links: allLinks.filter(l => l.relation === 'artist-track') },
+                          { label: 'On This Album',   links: allLinks.filter(l => l.relation === 'album-track') },
+                          { label: 'Genres',          links: allLinks.filter(l => l.kind === 'genre') },
+                          { label: 'Connections',     links: allLinks.filter(l => ['artist','album','track','top-track','top-artist','top-album'].includes(l.relation)) },
+                        ].filter(g => g.links.length > 0);
+
+                        return groups.map(group => (
+                          <div key={group.label} className="link-group">
+                            <div className="link-group-header">{group.label}</div>
+                            {group.links.map(link => (
+                              <button key={selectedEntity.id + link.id + link.relation} className={`link-pill link-${link.kind} ${findCanvasNodeForLink(link, selectedEntity.id) ? 'opened' : 'pending'}`} style={{ '--accent': `#${ghostAccentColor(link.relation)}` }} onClick={() => openLink(selectedEntity.id, link)}>
+                                <span>{link.relation}</span>
+                                <strong>{link.label}</strong>
+                                {link.similarity > 0 && <em>{Math.round(link.similarity * 100)}%</em>}
+                                {link.rank > 0 && <em>#{link.rank}</em>}
+                              </button>
+                            ))}
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </div>
                 </>
