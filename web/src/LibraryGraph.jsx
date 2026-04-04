@@ -329,6 +329,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   // Compact bar state for mid-sized devices
   const [compactSearchOpen, setCompactSearchOpen] = useState(false);
   const [compactSettingsOpen, setCompactSettingsOpen] = useState(false);
+  const [similarTracksOpen, setSimilarTracksOpen] = useState(false);
 
   // Filter and color state
   const [colorMode, setColorMode] = useState('genre'); // 'genre', 'bpm', 'year'
@@ -1032,31 +1033,43 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       {/* ═══════════════════════════════════════════════════════════ */}
       {isCompactDesktop && (
         <>
-          {/* Compact bar with icon buttons */}
+          {/* Floating icon buttons — icons only, no bar */}
           <div
             style={{
               position: 'absolute',
               top: 12,
               left: 12,
-              right: 12,
               zIndex: 1000,
               display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 8px',
-              background: 'rgba(15, 23, 42, 0.9)',
-              backdropFilter: 'blur(8px)',
-              borderRadius: 10,
-              border: '1px solid #334155'
+              flexDirection: 'column',
+              gap: 8
             }}
           >
+            {/* Back to Studio button */}
+            <Link
+              to="/"
+              style={{
+                width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(8px)',
+                border: '1px solid #334155', borderRadius: 8, color: '#94a3b8',
+                cursor: 'pointer', textDecoration: 'none', padding: 0
+              }}
+              aria-label="Back to Studio"
+              title="Back to Studio"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+            </Link>
+
             {/* Search button / input */}
-            <div ref={searchInputRef} style={{ flex: compactSearchOpen ? 1 : 'unset', minWidth: 0 }}>
+            <div ref={searchInputRef} style={{ position: 'relative' }}>
               {compactSearchOpen ? (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <input
                     type="text"
-                    placeholder="Search tracks, artists…"
+                    placeholder="Search…"
                     value={searchQuery}
                     autoFocus
                     onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); setHighlightedIndex(-1); }}
@@ -1064,24 +1077,40 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                     onKeyDown={handleSearchKeyDown}
                     onBlur={() => { if (!searchQuery) setCompactSearchOpen(false); }}
                     style={{
-                      flex: 1, minWidth: 0, padding: '8px 12px', fontSize: 13,
-                      color: '#e2e8f0', background: '#1e293b', border: '1px solid #334155',
-                      borderRadius: 8, outline: 'none', boxSizing: 'border-box'
+                      width: 180, padding: '8px 12px', fontSize: 13,
+                      color: '#e2e8f0', background: 'rgba(15, 23, 42, 0.9)', border: '1px solid #334155',
+                      borderRadius: 8, outline: 'none', backdropFilter: 'blur(8px)',
+                      boxSizing: 'border-box'
                     }}
                   />
-                  <button onClick={() => { setCompactSearchOpen(false); setSearchQuery(''); setShowDropdown(false); }} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4, fontSize: 16 }}>✕</button>
+                  <button
+                    onClick={() => { setCompactSearchOpen(false); setSearchQuery(''); setShowDropdown(false); }}
+                    style={{
+                      width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+                      border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 16
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               ) : (
                 <button
                   onClick={() => setCompactSearchOpen(true)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '8px 12px', background: '#1e293b', border: '1px solid #334155',
-                    borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
+                    width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(8px)',
+                    border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', cursor: 'pointer', padding: 0
                   }}
+                  aria-label="Search"
+                  title="Search"
                 >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.2-4.2" /></svg>
-                  Search
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <circle cx="11" cy="11" r="6" />
+                    <path d="M20 20l-4.2-4.2" />
+                  </svg>
                 </button>
               )}
 
@@ -1089,9 +1118,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               {showDropdown && searchResults.length > 0 && compactSearchOpen && (
                 <div
                   style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
-                    background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #334155',
-                    borderRadius: 8, overflow: 'hidden', maxHeight: '40vh', overflowY: 'auto', zIndex: 1001
+                    position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 260,
+                    background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)',
+                    border: '1px solid #334155', borderRadius: 8, overflow: 'hidden', maxHeight: '40vh', overflowY: 'auto', zIndex: 1001
                   }}
                 >
                   {searchResults.map((node, index) => (
@@ -1119,38 +1148,52 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               )}
             </div>
 
-            <div style={{ flex: 1 }} />
-
             {/* Settings button */}
             <button
-              onClick={() => setCompactSettingsOpen(true)}
+              onClick={() => setCompactSettingsOpen(!compactSettingsOpen)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '8px 12px', background: '#1e293b', border: '1px solid #334155',
-                borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
+                width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: compactSettingsOpen ? 'rgba(124, 58, 237, 0.3)' : 'rgba(15, 23, 42, 0.9)',
+                backdropFilter: 'blur(8px)',
+                border: `1px solid ${compactSettingsOpen ? 'rgba(124, 58, 237, 0.6)' : '#334155'}`,
+                borderRadius: 8, color: compactSettingsOpen ? '#c084fc' : '#94a3b8', cursor: 'pointer', padding: 0
               }}
+              aria-label="Settings"
+              title="Filters & Settings"
             >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg>
-              Settings
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+                <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+                <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" />
+                <line x1="17" y1="16" x2="23" y2="16" />
+              </svg>
             </button>
           </div>
 
-          {/* Settings panel overlay */}
+          {/* Settings panel — slides out from left side */}
           {compactSettingsOpen && (
             <>
               <div onClick={() => setCompactSettingsOpen(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1050 }} />
               <div style={{
-                position: 'absolute', top: 60, right: 12, width: 300, maxHeight: '80vh', overflowY: 'auto',
+                position: 'absolute', top: 0, left: 0, bottom: 0, width: 300,
                 background: 'rgba(15, 23, 42, 0.97)', backdropFilter: 'blur(12px)',
-                border: '1px solid #334155', borderRadius: 12, padding: 16, color: '#f8fafc', zIndex: 1100
+                borderRight: '1px solid #334155', overflowY: 'auto', zIndex: 1100,
+                padding: '16px', display: 'flex', flexDirection: 'column', gap: 16
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 style={{ margin: 0, fontSize: 16 }}>Library Controls</h3>
-                  <button onClick={() => setCompactSettingsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 20 }}>✕</button>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0, fontSize: 16, color: '#f8fafc' }}>Library Controls</h3>
+                  <button onClick={() => setCompactSettingsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 20, padding: 4 }}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
+                {/* Color Mode */}
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Colorize By</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }].map((opt) => (
                       <button key={opt.value} onClick={() => setColorMode(opt.value)} style={{
@@ -1163,23 +1206,27 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                   </div>
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>BPM: {filters.minBpm} – {filters.maxBpm}</label>
+                {/* BPM */}
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>BPM: {filters.minBpm} – {filters.maxBpm}</div>
                   <DualRangeSlider minVal={filters.minBpm} maxVal={filters.maxBpm} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minBpm: min, maxBpm: max }))} trackGradient="linear-gradient(to right, #3b82f6, #ef4444)" />
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Danceability: {Math.round(filters.minDanceability * 100)} – {Math.round(filters.maxDanceability * 100)}%</label>
+                {/* Danceability */}
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>Danceability: {Math.round(filters.minDanceability * 100)} – {Math.round(filters.maxDanceability * 100)}%</div>
                   <NormalizedDualRangeSlider minVal={filters.minDanceability} maxVal={filters.maxDanceability} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minDanceability: min, maxDanceability: max }))} trackGradient="linear-gradient(to right, #8b5cf6, #ec4899)" />
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Acousticness: {Math.round(filters.minAcousticness * 100)} – {Math.round(filters.maxAcousticness * 100)}%</label>
+                {/* Acousticness */}
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>Acousticness: {Math.round(filters.minAcousticness * 100)} – {Math.round(filters.maxAcousticness * 100)}%</div>
                   <NormalizedDualRangeSlider minVal={filters.minAcousticness} maxVal={filters.maxAcousticness} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minAcousticness: min, maxAcousticness: max }))} trackGradient="linear-gradient(to right, #22d3ee, #f59e0b)" />
                 </div>
 
-                <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Genre</label>
+                {/* Genre */}
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Genre</div>
                   <select value={filters.genre} onChange={(e) => setFilters({ ...filters, genre: e.target.value })} style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 8, borderRadius: 6 }}>
                     <option value="All">All Genres</option>
                     {uniqueGenres.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -1328,9 +1375,10 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             position: 'absolute',
             bottom: isCompactDesktop ? 0 : 12,
             left: isCompactDesktop ? 0 : 12,
-            right: isCompactDesktop ? 260 : 'auto',
-            width: isCompactDesktop ? 'calc(100% - 260px)' : 'fit-content',
-            maxWidth: isCompactDesktop ? 'none' : 360,
+            width: 'fit-content',
+            height: 'fit-content',
+            minHeight: 0,
+            maxWidth: 360,
             padding: 0,
             background: isCompactDesktop ? 'rgba(15, 23, 42, 0.95)' : 'rgba(15, 23, 42, 0.9)',
             backdropFilter: 'blur(8px)',
@@ -1377,7 +1425,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                 </div>
               )}
             </div>
-            <span className="soundwave-cluster" aria-hidden="true" style={{ flexShrink: 0, scale: isCompactDesktop ? 0.6 : 1 }}>
+            <span className="soundwave-cluster" aria-hidden="true" style={{ position: 'relative', right: 'auto', bottom: 'auto', flexShrink: 0, scale: isCompactDesktop ? 0.7 : 1, marginLeft: 6 }}>
               <span></span><span></span><span></span>
             </span>
           </div>
@@ -1408,44 +1456,101 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           }}
         >
           {isCompactDesktop ? (
-            /* Compact: just prev/next buttons, same height as now-playing bar */
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {navigationHistory.length > 0 && (
+            /* Compact: toggleable panel with prev/next always visible */
+            <>
+              {/* Always-visible button row */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: similarTracksOpen ? 6 : 0 }}>
+                {navigationHistory.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const newHistory = [...navigationHistory];
+                      const prevNodeId = newHistory.pop();
+                      setNavigationHistory(newHistory);
+                      const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+                      if (prevNode) triggerPlayAndFly(prevNode);
+                    }}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                      padding: '4px 8px', background: 'rgba(245, 158, 11, 0.2)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 4,
+                      color: '#fbbf24', cursor: 'pointer', fontSize: 11, fontWeight: 600
+                    }}
+                  >
+                    ← Back
+                  </button>
+                )}
+                {navigableTargets.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
+                      triggerPlayAndFly(navigableTargets[0].node);
+                    }}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                      padding: '4px 8px', background: 'rgba(16, 185, 129, 0.2)',
+                      border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: 4,
+                      color: '#34d399', cursor: 'pointer', fontSize: 11, fontWeight: 600
+                    }}
+                  >
+                    Next →
+                  </button>
+                )}
                 <button
-                  onClick={() => {
-                    const newHistory = [...navigationHistory];
-                    const prevNodeId = newHistory.pop();
-                    setNavigationHistory(newHistory);
-                    const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
-                    if (prevNode) triggerPlayAndFly(prevNode);
-                  }}
+                  onClick={() => setSimilarTracksOpen(!similarTracksOpen)}
                   style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                    padding: '4px 8px', background: 'rgba(245, 158, 11, 0.2)',
-                    border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 4,
-                    color: '#fbbf24', cursor: 'pointer', fontSize: 11, fontWeight: 600
+                    padding: '4px 8px', background: 'rgba(148, 163, 184, 0.1)',
+                    border: '1px solid rgba(148, 163, 184, 0.3)', borderRadius: 4,
+                    color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontWeight: 600, flexShrink: 0
                   }}
                 >
-                  ← Back
+                  {similarTracksOpen ? '✕' : '☰'}
                 </button>
+              </div>
+
+              {/* Expandable track list */}
+              {similarTracksOpen && navigableTargets.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {navigableTargets.slice(0, 9).map((target, index) => (
+                    <div
+                      key={target.node.id}
+                      onClick={() => {
+                        setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
+                        triggerPlayAndFly(target.node);
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px',
+                        background: 'rgba(30, 41, 59, 0.5)', borderRadius: 4,
+                        cursor: 'pointer', border: '1px solid transparent',
+                        transition: 'border-color 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
+                    >
+                      <div style={{
+                        width: 16, height: 16, background: '#334155', borderRadius: 3,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 9, fontWeight: 'bold', flexShrink: 0
+                      }}>
+                        {index + 1}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {target.node.label || target.node.title || target.node.name}
+                        </div>
+                        <div style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {target.node.artist || ''}
+                        </div>
+                      </div>
+                      <div style={{ width: 36, flexShrink: 0 }}>
+                        <div className="ghost-similarity-bar">
+                          <div className="ghost-bar sim" style={{ width: `${Math.max(8, Math.round(target.weight * 100))}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-              {navigableTargets.length > 0 && (
-                <button
-                  onClick={() => {
-                    setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
-                    triggerPlayAndFly(navigableTargets[0].node);
-                  }}
-                  style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                    padding: '4px 8px', background: 'rgba(16, 185, 129, 0.2)',
-                    border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: 4,
-                    color: '#34d399', cursor: 'pointer', fontSize: 11, fontWeight: 600
-                  }}
-                >
-                  Next →
-                </button>
-              )}
-            </div>
+            </>
           ) : (
             /* Wide: full track list */
             <>
@@ -1696,8 +1801,6 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         </div>
       )}
 
-      {/* Back to Studio link — non-small screens only */}
-      {!useCompactMobileLayout && <Link to="/" className="back-to-studio-link">← Back to Studio</Link>}
 
       <ForceGraph3D
         ref={graphRef}
