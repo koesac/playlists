@@ -278,7 +278,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const [isIdle, setIsIdle] = useState(false);
 
   // Filter and color state
-  const [colorMode, setColorMode] = useState('default'); // 'default', 'genre', 'bpm', 'year'
+  const [colorMode, setColorMode] = useState('genre'); // 'genre', 'bpm', 'year'
   const [controlsMinimized, setControlsMinimized] = useState(true);
   const [filters, setFilters] = useState({
     genre: 'All',
@@ -303,6 +303,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedNode, setSelectedNode] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   // Navigation state
   const [navigationHistory, setNavigationHistory] = useState([]);
@@ -340,10 +341,34 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     if (audioRef.current && node?.previewUrl) {
       if (audioRef.current.src !== node.previewUrl) {
         audioRef.current.src = node.previewUrl;
+        setNowPlayingNode(node); // Highlight as now playing and update the card
       }
       audioRef.current.play().catch((e) => console.warn("Playback prevented:", e));
     }
   }, []);
+
+  // Handle search result keyboard navigation
+  const handleSearchKeyDown = useCallback((e) => {
+    if (!showDropdown || searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < searchResults.length) {
+        const node = searchResults[highlightedIndex];
+        handleSearchResultClick(node);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowDropdown(false);
+      setHighlightedIndex(-1);
+    }
+  }, [showDropdown, searchResults, highlightedIndex, handleSearchResultClick]);
 
   const handleSearchResultLeave = useCallback(() => {
     if (audioRef.current) {
@@ -393,6 +418,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     setSearchQuery("");
     setShowDropdown(false);
     setSelectedNode(node);
+    setHighlightedIndex(-1);
     onNodeSelect?.(node);
     flyToNode(node);
   }, [onNodeSelect, flyToNode]);
@@ -612,6 +638,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const navigableTargets = useMemo(() => {
     if (!nowPlayingNode || !graphData.links) return [];
 
+    // History is now an array of strings (IDs), so we can just use a Set of those strings
+    const historyIds = new Set(navigationHistory);
+
     const connections = graphData.links.filter(link => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
@@ -627,49 +656,53 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       return { node: targetNode, weight: link.weight };
     })
     .filter(t => t.node)
+    // Check if the target's ID is in our simple Set of visited IDs
+    .filter(t => !historyIds.has(t.node.id))
     .sort((a, b) => b.weight - a.weight);
-  }, [nowPlayingNode, graphData]);
+  }, [nowPlayingNode?.id, graphData.links, navigationHistory]); // Use specific dependencies!
 
   // Keyboard navigation: ArrowUp (forward to #1), ArrowDown (infinite undo), 1-9 (specific target)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Don't trigger if user is typing in the search bar
       if (document.activeElement.tagName === 'INPUT') return;
-
       if (!nowPlayingNode) return;
 
-      // FORWARD: ArrowUp -> Jump to Target #1
       if (e.key === 'ArrowUp') {
-        e.preventDefault(); // Prevent page scrolling
+        e.preventDefault();
         if (navigableTargets.length > 0) {
           const nextNode = navigableTargets[0].node;
-          setNavigationHistory(prev => [...prev, nowPlayingNode]); // Save current to history
+          // PUSH THE ID STRING
+          setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
           triggerPlayAndFly(nextNode);
         }
       }
 
-      // BACKWARD: ArrowDown -> Infinite Undo
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         if (navigationHistory.length > 0) {
-          const prevNode = navigationHistory[navigationHistory.length - 1];
-          setNavigationHistory(prev => prev.slice(0, -1)); // Pop history
-          triggerPlayAndFly(prevNode);
+          const newHistory = [...navigationHistory];
+          const prevNodeId = newHistory.pop(); // POP THE ID STRING
+          setNavigationHistory(newHistory);
+
+          // Find the actual node object from the graph data
+          const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+          if (prevNode) triggerPlayAndFly(prevNode);
         }
       }
 
-      // JUMP TO SPECIFIC TARGET (Number keys 1-9)
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9 && num <= navigableTargets.length) {
+        e.preventDefault();
         const nextNode = navigableTargets[num - 1].node;
-        setNavigationHistory(prev => [...prev, nowPlayingNode]);
+        // PUSH THE ID STRING
+        setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
         triggerPlayAndFly(nextNode);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nowPlayingNode, navigableTargets, navigationHistory, triggerPlayAndFly]);
+  }, [nowPlayingNode, navigableTargets, navigationHistory, graphData.nodes]);
 
   if (loading) {
     return (
@@ -736,14 +769,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             <span
               style={{
                 padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                background: colorMode !== 'default' ? 'rgba(124, 58, 237, 0.3)' : 'rgba(148, 163, 184, 0.1)',
-                border: `1px solid ${colorMode !== 'default' ? 'rgba(124, 58, 237, 0.5)' : 'rgba(148, 163, 184, 0.2)'}`,
-                color: colorMode !== 'default' ? '#c084fc' : '#94a3b8',
+                background: 'rgba(124, 58, 237, 0.3)',
+                border: '1px solid rgba(124, 58, 237, 0.5)',
+                color: '#c084fc',
                 cursor: 'pointer'
               }}
               onClick={() => setControlsMinimized(false)}
             >
-              {colorMode === 'default' ? 'Default' : colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
+              {colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
             </span>
             {filters.genre !== 'All' && (
               <span
@@ -804,7 +837,6 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {[
-                  { value: 'default', label: 'Default' },
                   { value: 'genre', label: 'Genre' },
                   { value: 'bpm', label: 'BPM' },
                   { value: 'year', label: 'Year' }
@@ -903,8 +935,10 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           onChange={(e) => {
             setSearchQuery(e.target.value);
             setShowDropdown(true);
+            setHighlightedIndex(-1);
           }}
           onFocus={() => setShowDropdown(true)}
+          onKeyDown={handleSearchKeyDown}
           style={{
             width: "100%",
             padding: "12px 16px",
@@ -935,10 +969,13 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               overflowY: "auto",
             }}
           >
-            {searchResults.map((node) => (
+            {searchResults.map((node, index) => (
               <div
                 key={node.id}
-                onMouseEnter={() => handleSearchResultHover(node)}
+                onMouseEnter={() => {
+                  handleSearchResultHover(node);
+                  setHighlightedIndex(index);
+                }}
                 onMouseLeave={handleSearchResultLeave}
                 onClick={() => handleSearchResultClick(node)}
                 style={{
@@ -949,9 +986,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                   cursor: "pointer",
                   borderBottom: "1px solid rgba(51, 65, 85, 0.5)",
                   transition: "background 0.15s ease",
+                  background: index === highlightedIndex ? "rgba(124, 58, 237, 0.15)" : "transparent",
                 }}
-                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(124, 58, 237, 0.15)")}
-                onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 {/* Artwork */}
                 {node.artwork_url ? (
@@ -1145,7 +1181,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       </div>
 
       {/* Navigable Targets Aside */}
-      {nowPlayingNode && navigableTargets.length > 0 && (
+      {nowPlayingNode && (navigableTargets.length > 0 || navigationHistory.length > 0) && (
         <div style={{
           position: 'absolute', bottom: 24, right: 24, width: 280,
           background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
@@ -1159,11 +1195,11 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {navigableTargets.slice(0, 9).map((target, index) => (
+            {navigableTargets.length > 0 ? navigableTargets.slice(0, 9).map((target, index) => (
               <div
                 key={target.node.id}
                 onClick={() => {
-                  setNavigationHistory(prev => [...prev, nowPlayingNode]);
+                  setNavigationHistory(prev => [...prev, nowPlayingNode.id]); // PUSH ID
                   triggerPlayAndFly(target.node);
                 }}
                 style={{
@@ -1199,7 +1235,56 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                   {Math.round(target.weight * 100)}%
                 </div>
               </div>
-            ))}
+            )) : (
+              <div style={{ fontSize: '12px', color: '#64748b', padding: '8px 0', textAlign: 'center' }}>
+                No new similar tracks — use ⬇ to go back
+              </div>
+            )}
+
+            {/* Back to Previous Row */}
+            {navigationHistory.length > 0 && (
+              <div
+                onClick={() => {
+                  const newHistory = [...navigationHistory];
+                  const prevNodeId = newHistory.pop(); // POP ID
+                  setNavigationHistory(newHistory);
+
+                  const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+                  if (prevNode) triggerPlayAndFly(prevNode);
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px', padding: '8px',
+                  background: 'rgba(245, 158, 11, 0.15)',
+                  borderRadius: '4px', cursor: 'pointer', border: '1px dashed #f59e0b',
+                  marginTop: '8px', transition: 'background 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.25)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.15)'}
+              >
+                {/* Arrow Down Badge */}
+                <div style={{
+                  width: 20, height: 20, background: '#f59e0b', borderRadius: '4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '14px', fontWeight: 'bold', color: '#020617', flexShrink: 0
+                }}>
+                  ⬇
+                </div>
+
+                {/* Previous Track Info */}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '11px', color: '#fcd34d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Back to Previous
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {(() => {
+                      const lastId = navigationHistory[navigationHistory.length - 1];
+                      const node = graphData.nodes.find(n => n.id === lastId);
+                      return node ? (node.label || node.title) : 'Previous Track';
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
