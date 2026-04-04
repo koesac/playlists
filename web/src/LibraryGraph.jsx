@@ -47,6 +47,224 @@ function nodeVal(node) {
   return Math.max(2, Math.log10(pop + 10) * 1.5);
 }
 
+// ─── DualRangeSlider (integer range, e.g. BPM 60-200) ───────────────────────
+function DualRangeSlider({ minVal, maxVal, onChange, trackGradient }) {
+  const trackRef = useRef(null);
+  const [dragging, setDragging] = useState(null); // 'min' or 'max'
+  const latestVals = useRef({ min: minVal, max: maxVal });
+
+  // Keep ref in sync with props — fixes stale closure
+  useEffect(() => {
+    latestVals.current = { min: minVal, max: maxVal };
+  }, [minVal, maxVal]);
+
+  const trackMin = 60;
+  const trackMax = 200;
+  const trackRange = trackMax - trackMin;
+
+  const handlePointerDown = useCallback((which) => (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // Fix event bubbling
+    setDragging(which);
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    setDragging(null);
+  }, []);
+
+  useEffect(() => {
+    if (dragging) {
+      const handlePointerMove = (e) => {
+        if (!trackRef.current) return;
+        const rect = trackRef.current.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const value = Math.round(trackMin + pct * trackRange);
+        // Read from ref to avoid stale closure — always gets latest values
+        const current = latestVals.current;
+
+        if (dragging === 'min') {
+          onChange({ min: Math.min(value, current.max), max: current.max });
+        } else {
+          onChange({ min: current.min, max: Math.max(value, current.min) });
+        }
+      };
+
+      window.addEventListener('mousemove', handlePointerMove);
+      window.addEventListener('mouseup', handlePointerUp);
+      window.addEventListener('touchmove', handlePointerMove);
+      window.addEventListener('touchend', handlePointerUp);
+      return () => {
+        window.removeEventListener('mousemove', handlePointerMove);
+        window.removeEventListener('mouseup', handlePointerUp);
+        window.removeEventListener('touchmove', handlePointerMove);
+        window.removeEventListener('touchend', handlePointerUp);
+      };
+    }
+  }, [dragging, trackMin, trackRange, onChange, handlePointerUp]);
+
+  const minPct = ((minVal - trackMin) / trackRange) * 100;
+  const maxPct = ((maxVal - trackMin) / trackRange) * 100;
+
+  return (
+    <div
+      ref={trackRef}
+      style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
+    >
+      {/* Visual track */}
+      <div style={{
+        position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
+        transform: 'translateY(-50%)', borderRadius: 3,
+        background: trackGradient || 'linear-gradient(to right, #3b82f6, #ef4444)',
+        zIndex: 0
+      }} />
+      {/* Selected range highlight */}
+      <div style={{
+        position: 'absolute', top: '50%', height: 6,
+        transform: 'translateY(-50%)', borderRadius: 3,
+        left: `${minPct}%`,
+        width: `${maxPct - minPct}%`,
+        background: 'rgba(124, 58, 237, 0.6)',
+        zIndex: 1
+      }} />
+      {/* Min thumb */}
+      <div
+        onMouseDown={handlePointerDown('min')}
+        onTouchStart={handlePointerDown('min')}
+        style={{
+          position: 'absolute', top: '50%', width: 22, height: 22,
+          transform: 'translate(-50%, -50%)', borderRadius: '50%',
+          left: `${minPct}%`,
+          background: '#3b82f6', border: '2px solid #1e293b',
+          boxShadow: dragging === 'min' ? '0 0 0 4px rgba(59, 130, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+          zIndex: 3, cursor: 'grab'
+        }}
+      />
+      {/* Max thumb */}
+      <div
+        onMouseDown={handlePointerDown('max')}
+        onTouchStart={handlePointerDown('max')}
+        style={{
+          position: 'absolute', top: '50%', width: 22, height: 22,
+          transform: 'translate(-50%, -50%)', borderRadius: '50%',
+          left: `${maxPct}%`,
+          background: '#ef4444', border: '2px solid #1e293b',
+          boxShadow: dragging === 'max' ? '0 0 0 4px rgba(239, 68, 68, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+          zIndex: 3, cursor: 'grab'
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── NormalizedDualRangeSlider (0-1 range, e.g. danceability) ────────────────
+function NormalizedDualRangeSlider({ minVal, maxVal, onChange, label, trackGradient }) {
+  const trackRef = useRef(null);
+  const [dragging, setDragging] = useState(null);
+  const latestVals = useRef({ min: minVal, max: maxVal });
+
+  // Keep ref in sync with props — fixes stale closure
+  useEffect(() => {
+    latestVals.current = { min: minVal, max: maxVal };
+  }, [minVal, maxVal]);
+
+  const handlePointerDown = useCallback((which) => (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // Fix event bubbling
+    setDragging(which);
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    setDragging(null);
+  }, []);
+
+  useEffect(() => {
+    if (dragging) {
+      const handlePointerMove = (e) => {
+        if (!trackRef.current) return;
+        const rect = trackRef.current.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        // Read from ref to avoid stale closure — always gets latest values
+        const current = latestVals.current;
+
+        if (dragging === 'min') {
+          onChange({ min: Math.min(pct, current.max), max: current.max });
+        } else {
+          onChange({ min: current.min, max: Math.max(pct, current.min) });
+        }
+      };
+
+      window.addEventListener('mousemove', handlePointerMove);
+      window.addEventListener('mouseup', handlePointerUp);
+      window.addEventListener('touchmove', handlePointerMove);
+      window.addEventListener('touchend', handlePointerUp);
+      return () => {
+        window.removeEventListener('mousemove', handlePointerMove);
+        window.removeEventListener('mouseup', handlePointerUp);
+        window.removeEventListener('touchmove', handlePointerMove);
+        window.removeEventListener('touchend', handlePointerUp);
+      };
+    }
+  }, [dragging, onChange, handlePointerUp]);
+
+  const minPct = minVal * 100;
+  const maxPct = maxVal * 100;
+
+  return (
+    <div
+      ref={trackRef}
+      style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
+    >
+      {/* Visual track */}
+      <div style={{
+        position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
+        transform: 'translateY(-50%)', borderRadius: 3,
+        background: trackGradient,
+        zIndex: 0
+      }} />
+      {/* Selected range highlight */}
+      <div style={{
+        position: 'absolute', top: '50%', height: 6,
+        transform: 'translateY(-50%)', borderRadius: 3,
+        left: `${minPct}%`,
+        width: `${maxPct - minPct}%`,
+        background: 'rgba(124, 58, 237, 0.6)',
+        zIndex: 1
+      }} />
+      {/* Min thumb */}
+      <div
+        onMouseDown={handlePointerDown('min')}
+        onTouchStart={handlePointerDown('min')}
+        style={{
+          position: 'absolute', top: '50%', width: 22, height: 22,
+          transform: 'translate(-50%, -50%)', borderRadius: '50%',
+          left: `${minPct}%`,
+          background: trackGradient.includes('#8b5cf6') ? '#8b5cf6' : '#22d3ee',
+          border: '2px solid #1e293b',
+          boxShadow: dragging === 'min' ? '0 0 0 4px rgba(139, 92, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+          zIndex: 3, cursor: 'grab'
+        }}
+      />
+      {/* Max thumb */}
+      <div
+        onMouseDown={handlePointerDown('max')}
+        onTouchStart={handlePointerDown('max')}
+        style={{
+          position: 'absolute', top: '50%', width: 22, height: 22,
+          transform: 'translate(-50%, -50%)', borderRadius: '50%',
+          left: `${maxPct}%`,
+          background: trackGradient.includes('#ec4899') ? '#ec4899' : '#f59e0b',
+          border: '2px solid #1e293b',
+          boxShadow: dragging === 'max' ? '0 0 0 4px rgba(236, 72, 153, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+          zIndex: 3, cursor: 'grab'
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── LibraryGraph (main component) ───────────────────────────────────────────
 function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const graphRef = useRef(null);
   const containerRef = useRef(null);
@@ -85,6 +303,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedNode, setSelectedNode] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
+
+  // Navigation state
+  const [navigationHistory, setNavigationHistory] = useState([]);
 
   // Fuzzy match helper
   function fuzzyMatch(text, query) {
@@ -130,23 +351,25 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     }
   }, []);
 
+  // Fly camera to a node (reusable helper)
+  const flyToNode = useCallback((node, distance = 100, duration = 1500) => {
+    if (!graphRef.current || !node) return;
+    const distRatio = 1 + distance / Math.hypot(node.x || 0, node.y || 0, node.z || 0);
+    graphRef.current.cameraPosition(
+      { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
+      { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
+      duration
+    );
+  }, []);
+
   // Handle search result click — fly camera to node
   const handleSearchResultClick = useCallback((node) => {
     setSearchQuery("");
     setShowDropdown(false);
     setSelectedNode(node);
     onNodeSelect?.(node);
-
-    if (graphRef.current) {
-      const distance = 100;
-      const distRatio = 1 + distance / Math.hypot(node.x || 0, node.y || 0, node.z || 0);
-      graphRef.current.cameraPosition(
-        { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
-        { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
-        1500
-      );
-    }
-  }, [onNodeSelect]);
+    flyToNode(node);
+  }, [onNodeSelect, flyToNode]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -333,32 +556,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     }
 
     // 4. Fly camera to node
-    const distance = 100;
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
-    graphRef.current.cameraPosition(
-      { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-      node,
-      1500 // Smooth 1.5s flight
-    );
-  }, [onNodeSelect]);
+    flyToNode(node);
+  }, [onNodeSelect, flyToNode]);
 
   // Handle node double-click — fly camera closer (audio preview now triggered by hover)
   const handleNodeDoubleClick = useCallback((node) => {
     if (!node) return;
-
-    // Fly camera closer to node
-    const distance = 80;
-    const distRatio = 1 + distance / Math.hypot(node.x || 0, node.y || 0, node.z || 0);
-    graphRef.current?.cameraPosition(
-      {
-        x: (node.x || 0) * distRatio,
-        y: (node.y || 0) * distRatio,
-        z: (node.z || 0) * distRatio,
-      },
-      { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
-      1200
-    );
-  }, []);
+    flyToNode(node, 80, 1200);
+  }, [flyToNode]);
 
   // Filter check function
   const passesFilters = useCallback((node) => {
@@ -377,206 +582,75 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     return Array.from(new Set(graphData.nodes.map(n => n.genre).filter(Boolean))).sort();
   }, [graphData.nodes]);
 
-  // Dual-range slider component for BPM (integer range)
-  function DualRangeSlider({ min, max, trackGradient, filterKey }) {
-    const trackRef = useRef(null);
-    const [dragging, setDragging] = useState(null); // 'min' or 'max'
+  // Compute the nearest neighbors of the currently focused node
+  const activeFocusNode = selectedNode || nowPlayingNode;
 
-    // Absolute bounds for the track
-    const trackMin = 60;
-    const trackMax = 200;
-    const trackRange = trackMax - trackMin;
+  const navigableTargets = useMemo(() => {
+    if (!activeFocusNode || !graphData.links) return [];
 
-    const handlePointerDown = useCallback((which) => (e) => {
-      e.preventDefault();
-      setDragging(which);
-    }, []);
+    // Find all links connected to the focused node
+    const connections = graphData.links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      return sourceId === activeFocusNode.id || targetId === activeFocusNode.id;
+    });
 
-    const handlePointerMove = useCallback((e) => {
-      if (!dragging || !trackRef.current) return;
-      const rect = trackRef.current.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const value = trackMin + pct * trackRange;
+    // Map to the actual node objects and sort by highest similarity weight
+    const targets = connections.map(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      const targetNodeId = sourceId === activeFocusNode.id ? targetId : sourceId;
 
-      if (dragging === 'min') {
-        setFilters(prev => ({ ...prev, [`min${filterKey}`]: Math.min(Math.round(value), prev[`max${filterKey}`]) }));
-      } else {
-        setFilters(prev => ({ ...prev, [`max${filterKey}`]: Math.max(Math.round(value), prev[`min${filterKey}`]) }));
+      const targetNode = graphData.nodes.find(n => n.id === targetNodeId);
+      return { node: targetNode, weight: link.weight };
+    })
+    .filter(t => t.node) // Ensure the node exists
+    .sort((a, b) => b.weight - a.weight); // Strongest connections first
+
+    return targets;
+  }, [activeFocusNode, graphData]);
+
+  // Keyboard navigation: ArrowRight (forward), ArrowLeft (back), 1-9 (specific target)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if user is typing in the search bar
+      if (document.activeElement.tagName === 'INPUT') return;
+
+      if (!activeFocusNode) return;
+
+      // JUMP TO #1 TARGET (Forward)
+      if (e.key === 'ArrowRight') {
+        if (navigableTargets.length > 0) {
+          const nextNode = navigableTargets[0].node;
+          setNavigationHistory(prev => [...prev, activeFocusNode]);
+          setSelectedNode(nextNode);
+          flyToNode(nextNode);
+        }
       }
-    }, [dragging, filterKey, trackMin, trackRange]);
 
-    const handlePointerUp = useCallback(() => {
-      setDragging(null);
-    }, []);
-
-    useEffect(() => {
-      if (dragging) {
-        window.addEventListener('mousemove', handlePointerMove);
-        window.addEventListener('mouseup', handlePointerUp);
-        window.addEventListener('touchmove', handlePointerMove);
-        window.addEventListener('touchend', handlePointerUp);
-        return () => {
-          window.removeEventListener('mousemove', handlePointerMove);
-          window.removeEventListener('mouseup', handlePointerUp);
-          window.removeEventListener('touchmove', handlePointerMove);
-          window.removeEventListener('touchend', handlePointerUp);
-        };
+      // JUMP BACK (Backward)
+      if (e.key === 'ArrowLeft') {
+        if (navigationHistory.length > 0) {
+          const prevNode = navigationHistory[navigationHistory.length - 1];
+          setNavigationHistory(prev => prev.slice(0, -1)); // Pop history
+          setSelectedNode(prevNode);
+          flyToNode(prevNode);
+        }
       }
-    }, [dragging, handlePointerMove, handlePointerUp]);
 
-    const minPct = ((min - 60) / 140) * 100;
-    const maxPct = ((max - 60) / 140) * 100;
-
-    return (
-      <div
-        ref={trackRef}
-        style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
-      >
-        {/* Visual track */}
-        <div style={{
-          position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
-          transform: 'translateY(-50%)', borderRadius: 3,
-          background: trackGradient || 'linear-gradient(to right, #3b82f6, #ef4444)',
-          zIndex: 0
-        }} />
-        {/* Selected range highlight */}
-        <div style={{
-          position: 'absolute', top: '50%', height: 6,
-          transform: 'translateY(-50%)', borderRadius: 3,
-          left: `${minPct}%`,
-          width: `${maxPct - minPct}%`,
-          background: 'rgba(124, 58, 237, 0.6)',
-          zIndex: 1
-        }} />
-        {/* Min thumb */}
-        <div
-          onMouseDown={handlePointerDown('min')}
-          onTouchStart={handlePointerDown('min')}
-          style={{
-            position: 'absolute', top: '50%', width: 22, height: 22,
-            transform: 'translate(-50%, -50%)', borderRadius: '50%',
-            left: `${minPct}%`,
-            background: '#3b82f6', border: '2px solid #1e293b',
-            boxShadow: dragging === 'min' ? '0 0 0 4px rgba(59, 130, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
-            zIndex: 3, cursor: 'grab'
-          }}
-        />
-        {/* Max thumb */}
-        <div
-          onMouseDown={handlePointerDown('max')}
-          onTouchStart={handlePointerDown('max')}
-          style={{
-            position: 'absolute', top: '50%', width: 22, height: 22,
-            transform: 'translate(-50%, -50%)', borderRadius: '50%',
-            left: `${maxPct}%`,
-            background: '#ef4444', border: '2px solid #1e293b',
-            boxShadow: dragging === 'max' ? '0 0 0 4px rgba(239, 68, 68, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
-            zIndex: 3, cursor: 'grab'
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Normalized dual-range slider (0-1 range)
-  function NormalizedDualRangeSlider({ minVal, maxVal, onChange, label, trackGradient }) {
-    const trackRef = useRef(null);
-    const [dragging, setDragging] = useState(null);
-
-    const handlePointerDown = useCallback((which) => (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragging(which);
-    }, []);
-
-    const handlePointerMove = useCallback((e) => {
-      if (!dragging || !trackRef.current) return;
-      const rect = trackRef.current.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-
-      if (dragging === 'min') {
-        onChange({ min: Math.min(pct, maxVal), max: maxVal });
-      } else {
-        onChange({ min: minVal, max: Math.max(pct, minVal) });
+      // JUMP TO SPECIFIC TARGET (Number keys 1-9)
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 9 && num <= navigableTargets.length) {
+        const nextNode = navigableTargets[num - 1].node;
+        setNavigationHistory(prev => [...prev, activeFocusNode]);
+        setSelectedNode(nextNode);
+        flyToNode(nextNode);
       }
-    }, [dragging, minVal, maxVal, onChange]);
+    };
 
-    const handlePointerUp = useCallback(() => {
-      setDragging(null);
-    }, []);
-
-    useEffect(() => {
-      if (dragging) {
-        window.addEventListener('mousemove', handlePointerMove);
-        window.addEventListener('mouseup', handlePointerUp);
-        window.addEventListener('touchmove', handlePointerMove);
-        window.addEventListener('touchend', handlePointerUp);
-        return () => {
-          window.removeEventListener('mousemove', handlePointerMove);
-          window.removeEventListener('mouseup', handlePointerUp);
-          window.removeEventListener('touchmove', handlePointerMove);
-          window.removeEventListener('touchend', handlePointerUp);
-        };
-      }
-    }, [dragging, handlePointerMove, handlePointerUp]);
-
-    const minPct = minVal * 100;
-    const maxPct = maxVal * 100;
-
-    return (
-      <div
-        ref={trackRef}
-        style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
-      >
-        {/* Visual track */}
-        <div style={{
-          position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
-          transform: 'translateY(-50%)', borderRadius: 3,
-          background: trackGradient,
-          zIndex: 0
-        }} />
-        {/* Selected range highlight */}
-        <div style={{
-          position: 'absolute', top: '50%', height: 6,
-          transform: 'translateY(-50%)', borderRadius: 3,
-          left: `${minPct}%`,
-          width: `${maxPct - minPct}%`,
-          background: 'rgba(124, 58, 237, 0.6)',
-          zIndex: 1
-        }} />
-        {/* Min thumb */}
-        <div
-          onMouseDown={handlePointerDown('min')}
-          onTouchStart={handlePointerDown('min')}
-          style={{
-            position: 'absolute', top: '50%', width: 22, height: 22,
-            transform: 'translate(-50%, -50%)', borderRadius: '50%',
-            left: `${minPct}%`,
-            background: trackGradient.includes('#8b5cf6') ? '#8b5cf6' : '#22d3ee',
-            border: '2px solid #1e293b',
-            boxShadow: dragging === 'min' ? '0 0 0 4px rgba(139, 92, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
-            zIndex: 3, cursor: 'grab'
-          }}
-        />
-        {/* Max thumb */}
-        <div
-          onMouseDown={handlePointerDown('max')}
-          onTouchStart={handlePointerDown('max')}
-          style={{
-            position: 'absolute', top: '50%', width: 22, height: 22,
-            transform: 'translate(-50%, -50%)', borderRadius: '50%',
-            left: `${maxPct}%`,
-            background: trackGradient.includes('#ec4899') ? '#ec4899' : '#f59e0b',
-            border: '2px solid #1e293b',
-            boxShadow: dragging === 'max' ? '0 0 0 4px rgba(236, 72, 153, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
-            zIndex: 3, cursor: 'grab'
-          }}
-        />
-      </div>
-    );
-  }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeFocusNode, navigableTargets, navigationHistory, flyToNode]);
 
   if (loading) {
     return (
@@ -740,10 +814,10 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                 BPM Range: {filters.minBpm} – {filters.maxBpm}
               </label>
               <DualRangeSlider
-                min={filters.minBpm}
-                max={filters.maxBpm}
+                minVal={filters.minBpm}
+                maxVal={filters.maxBpm}
+                onChange={({ min, max }) => setFilters(prev => ({ ...prev, minBpm: min, maxBpm: max }))}
                 trackGradient="linear-gradient(to right, #3b82f6, #ef4444)"
-                filterKey="Bpm"
               />
             </div>
 
@@ -1050,6 +1124,67 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           </div>
         )}
       </div>
+
+      {/* Navigable Targets Aside */}
+      {activeFocusNode && navigableTargets.length > 0 && (
+        <div style={{
+          position: 'absolute', bottom: 24, right: 24, width: 280,
+          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          border: '1px solid #334155', borderRadius: 8, padding: 12,
+          color: '#f8fafc', zIndex: 1000, maxHeight: '50vh', overflowY: 'auto'
+        }}>
+          <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Similar Tracks</span>
+            <span>Use 1-9 or ➡</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {navigableTargets.slice(0, 9).map((target, index) => (
+              <div
+                key={target.node.id}
+                onClick={() => {
+                  setNavigationHistory(prev => [...prev, activeFocusNode]);
+                  setSelectedNode(target.node);
+                  flyToNode(target.node);
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '6px',
+                  background: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px',
+                  cursor: 'pointer', border: '1px solid transparent',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
+              >
+                {/* Number Key Badge */}
+                <div style={{
+                  width: 20, height: 20, background: '#334155', borderRadius: '4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '11px', fontWeight: 'bold', flexShrink: 0
+                }}>
+                  {index + 1}
+                </div>
+
+                {/* Target Info */}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {target.node.label || target.node.title || target.node.name}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {target.node.artist || ''}
+                  </div>
+                </div>
+
+                {/* Match Score */}
+                <div style={{ fontSize: '10px', color: '#10b981' }}>
+                  {Math.round(target.weight * 100)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Now Playing Aside */}
       {nowPlayingNode && (

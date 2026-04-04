@@ -1,291 +1,318 @@
-Implement "Now Playing" Node & Link Animations
-The user wants the currently playing node (nowPlayingNode) to be visually distinct from the clicked/selected node, featuring a unique color, a larger bulging size, and animated "pulsing" connections to its related tracks.
+Polish the "Now Playing" Particles
+The current linkDirectionalParticles animation looks chaotic because particles travel randomly based on whether the playing node is the source or target of the link. We need to synchronize the particles so they always radiate smoothly outward from the nowPlayingNode, and we need to refine their aesthetics.
 
-Apply these exact updates to LibraryGraph.jsx:
+Apply these exact prop updates to <ForceGraph3D> in LibraryGraph.jsx:
 
-1. Update nodeColor and nodeVal (The Glowing Node)
-Give the playing node a distinct Neon Emerald Green (#10b981) color and dramatically increase its size so it bulges out from the galaxy. Ensure this overrides the standard colorMode filters.
-
-jsx
-<ForceGraph3D
-  // ... existing props
-
-  nodeColor={(node) => {
-    // 1. Highest Priority: Playing Node
-    if (nowPlayingNode && node.id === nowPlayingNode.id) return '#10b981'; // Neon Emerald
-    
-    // 2. Second Priority: Selected Node
-    if (selectedNode && node.id === selectedNode.id) return '#f59e0b'; // Orange
-    
-    // 3. Fallback to existing colorMode logic
-    if (colorMode === 'genre') return stringToColor(node.genre);
-    if (colorMode === 'bpm') return bpmToColor(node.bpm);
-    if (colorMode === 'year') return yearToColor(node.year);
-    
-    return node.kind === 'track' ? '#7c3aed' : '#0ea5e9';
-  }}
-
-  nodeVal={(node) => {
-    const baseSize = Math.max(2, Math.log10(node.listeners || 10));
-    if (nowPlayingNode && node.id === nowPlayingNode.id) return baseSize * 2.5; // Bulge while playing
-    if (selectedNode && node.id === selectedNode.id) return baseSize * 1.5;
-    return baseSize;
-  }}
-2. Update linkVisibility and linkColor
-Ensure the links for the playing node are visible and given a lighter, highly visible color (rgba(16, 185, 129, 0.8)).
+1. Force Outward Radiation (Negative Speed)
+Update linkDirectionalParticleSpeed to dynamically check the direction of the edge. If the playing node is the target, return a negative speed to reverse the flow.
 
 jsx
-  linkVisibility={(link) => {
-    if (!hoveredNode && !selectedNode && !nowPlayingNode) return false;
+  linkDirectionalParticleSpeed={(link) => {
+    if (!nowPlayingNode) return 0;
     
     const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
     const targetId = typeof link.target === 'object' ? link.target.id : link.target;
     
-    const isHovered = hoveredNode && (sourceId === hoveredNode.id || targetId === hoveredNode.id);
-    const isSelected = selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id);
-    const isPlaying = nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id);
-    
-    return isHovered || isSelected || isPlaying;
+    if (sourceId === nowPlayingNode.id) {
+      return 0.006; // Flow forward (outward from source)
+    }
+    if (targetId === nowPlayingNode.id) {
+      return -0.006; // Flow backward (outward from target)
+    }
+    return 0;
   }}
+2. Refine Particle Aesthetics
+Reduce the number of particles so they look like distinct "beats" of a song, and make them slightly thinner and explicitly colored to match the neon green playing node.
 
+jsx
+  linkDirectionalParticles={(link) => {
+    if (!nowPlayingNode) return 0;
+    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+    
+    if (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id) {
+      return 2; // Reduced from 4 for a cleaner, heartbeat-like pulse
+    }
+    return 0;
+  }}
+  linkDirectionalParticleWidth={1.2} // Thinner, sleeker energy beads
+  linkDirectionalParticleColor={() => '#10b981'} // Force them to match the Neon Emerald node
+3. Dim the Playing Links Slightly
+To make the neon green particles stand out even more, slightly dim the solid line they are traveling on. Update the linkColor condition for the playing node:
+
+jsx
   linkColor={(link) => {
     const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
     const targetId = typeof link.target === 'object' ? link.target.id : link.target;
     
     if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
-      return 'rgba(16, 185, 129, 0.8)'; // Bright Emerald for playing
+      return 'rgba(16, 185, 129, 0.3)'; // Dimmed green tube so the bright particles pop inside it
     }
     if (selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id)) {
-      return '#f59e0b'; // Orange for selected
+      return '#f59e0b';
     }
-    return '#7c3aed'; // Purple for hovered
+    return 'rgba(124, 58, 237, 0.6)'; // Purple
   }}
-3. Add linkDirectionalParticles (The Pulsing Animation)
-Use the WebGL engine's native particle feature to animate energy flowing out of the currently playing node along its visible links.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Implement the 2D Marquee "Bulk Harvester"
+We need to allow the user to select multiple tracks at once by holding Shift and drawing a selection box over the 3D graph. Selected nodes should be highlighted in Hot Pink (#ec4899), and a floating action bar should appear to send the bulk selection to the Studio Context queue.
+
+1. Add Marquee State & Keyboard Listeners
+In LibraryGraph.jsx, add state to track the Shift key, the dragging box coordinates, and the set of selected node IDs.
 
 jsx
-  // Add these props to <ForceGraph3D>
-  
-  linkDirectionalParticles={(link) => {
-    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-    
-    // Only animate particles for the currently playing track
-    if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
-      return 4; // Number of particles flowing along each line
-    }
-    return 0; // No particles for hovered/selected nodes to save GPU power
-  }}
-  linkDirectionalParticleWidth={2}
-  linkDirectionalParticleSpeed={0.01}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-   Implement Spatial Keyboard Navigation & Targets Aside
-The user wants to navigate the 3D graph using keyboard shortcuts. When a node is selected or playing, pressing ArrowRight (Forward) or ArrowLeft (Back) should move the selection to the closest related tracks based on the graph's link weights. We also need a visual list showing these navigable targets.
-
-1. Compute Navigable Targets
-In LibraryGraph.jsx, we need to calculate the immediate neighbors of the selectedNode (or nowPlayingNode), sorted by how strong their connection is (their weight).
-
-Add a new React state and a useMemo hook to compute the targets whenever the selection changes:
-
-jsx
-const [navigationHistory, setNavigationHistory] = useState([]); // To allow "Back" traversal
-
-// Compute the nearest neighbors of the currently focused node
-const activeFocusNode = selectedNode || nowPlayingNode;
-
-const navigableTargets = useMemo(() => {
-  if (!activeFocusNode || !graphData.links) return [];
-
-  // Find all links connected to the focused node
-  const connections = graphData.links.filter(link => {
-    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-    return sourceId === activeFocusNode.id || targetId === activeFocusNode.id;
-  });
-
-  // Map to the actual node objects and sort by highest similarity weight
-  const targets = connections.map(link => {
-    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-    const targetNodeId = sourceId === activeFocusNode.id ? targetId : sourceId;
-    
-    const targetNode = graphData.nodes.find(n => n.id === targetNodeId);
-    return { node: targetNode, weight: link.weight };
-  })
-  .filter(t => t.node) // Ensure the node exists
-  .sort((a, b) => b.weight - a.weight); // Strongest connections first
-
-  return targets;
-}, [activeFocusNode, graphData]);
-2. Implement Keyboard Event Listeners
-Add a useEffect that listens for ArrowRight (jump to the #1 closest target) and ArrowLeft (jump back to the previous node). Number keys 1 through 9 should jump to that specific target in the list.
-
-jsx
+const [isShiftPressed, setIsShiftPressed] = useState(false);
+const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 }
+const [bulkSelection, setBulkSelection] = useState(new Set());
+
+// Listen for the Shift key to toggle selection mode
 useEffect(() => {
-  const handleKeyDown = (e) => {
-    // Don't trigger if user is typing in the search bar
-    if (document.activeElement.tagName === 'INPUT') return;
-
-    if (!activeFocusNode) return;
-
-    // JUMP TO #1 TARGET (Forward)
-    if (e.key === 'ArrowRight') {
-      if (navigableTargets.length > 0) {
-        const nextNode = navigableTargets[0].node;
-        setNavigationHistory(prev => [...prev, activeFocusNode]);
-        setSelectedNode(nextNode);
-        flyToNode(nextNode); // Assuming you extracted the cameraPosition logic into a flyToNode(node) function
-      }
-    }
-
-    // JUMP BACK (Backward)
-    if (e.key === 'ArrowLeft') {
-      if (navigationHistory.length > 0) {
-        const prevNode = navigationHistory[navigationHistory.length - 1];
-        setNavigationHistory(prev => prev.slice(0, -1)); // Pop history
-        setSelectedNode(prevNode);
-        flyToNode(prevNode);
-      }
-    }
-
-    // JUMP TO SPECIFIC TARGET (Number keys 1-9)
-    const num = parseInt(e.key);
-    if (num >= 1 && num <= 9 && num <= navigableTargets.length) {
-      const nextNode = navigableTargets[num - 1].node;
-      setNavigationHistory(prev => [...prev, activeFocusNode]);
-      setSelectedNode(nextNode);
-      flyToNode(nextNode);
-    }
-  };
-
+  const handleKeyDown = (e) => { if (e.key === 'Shift') setIsShiftPressed(true); };
+  const handleKeyUp = (e) => { if (e.key === 'Shift') setIsShiftPressed(false); };
   window.addEventListener('keydown', handleKeyDown);
-  return () => window.removeEventListener('keydown', handleKeyDown);
-}, [activeFocusNode, navigableTargets, navigationHistory]);
-3. Render the Targets Aside (Bottom Right)
-Create a new floating panel on the right side of the screen that lists these navigable targets, displaying their number keys.
+  window.addEventListener('keyup', handleKeyUp);
+  return () => {
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
+  };
+}, []);
+2. Implement 3D-to-2D Projection Logic
+Wrap the main <ForceGraph3D> inside a generic <div> (you likely already have one). Attach onPointerDown, onPointerMove, and onPointerUp to this wrapper to draw the box and calculate which 3D nodes fall inside the 2D screen coordinates.
 
 jsx
-{/* Navigable Targets Aside */}
-{activeFocusNode && navigableTargets.length > 0 && (
-  <div style={{
-    position: 'absolute', bottom: 24, right: 24, width: 280,
-    background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
-    border: '1px solid #334155', borderRadius: 8, padding: 12,
-    color: '#f8fafc', zIndex: 1000, maxHeight: '50vh', overflowY: 'auto'
-  }}>
-    <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-      <span>Similar Tracks</span>
-      <span>Use 1-9 or ➡</span>
-    </div>
+<div 
+  style={{ width: '100%', height: '100vh', position: 'relative' }}
+  onPointerDown={(e) => {
+    if (isShiftPressed) {
+      setDragBox({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+    }
+  }}
+  onPointerMove={(e) => {
+    if (dragBox) {
+      setDragBox(prev => ({ ...prev, x2: e.clientX, y2: e.clientY }));
+    }
+  }}
+  onPointerUp={(e) => {
+    if (dragBox && graphRef.current) {
+      const minX = Math.min(dragBox.x1, dragBox.x2);
+      const maxX = Math.max(dragBox.x1, dragBox.x2);
+      const minY = Math.min(dragBox.y1, dragBox.y2);
+      const maxY = Math.max(dragBox.y1, dragBox.y2);
+
+      const newSelection = new Set(bulkSelection);
+
+      // Project 3D nodes to 2D screen space to check if they are in the box
+      graphData.nodes.forEach(node => {
+        if (node.kind !== 'track') return; 
+        if (!passesFilters(node)) return; // Only select currently visible nodes
+
+        const screenCoords = graphRef.current.graph2ScreenCoords(node.x, node.y, node.z);
+        if (
+          screenCoords.x >= minX && screenCoords.x <= maxX &&
+          screenCoords.y >= minY && screenCoords.y <= maxY
+        ) {
+          newSelection.add(node.id);
+        }
+      });
+
+      setBulkSelection(newSelection);
+      setDragBox(null); // Clear the drawing box
+    }
+  }}
+>
+3. Update the Graph Config (Freeze Camera & Colorize)
+Update the ForceGraph3D props. Disable camera navigation while Shift is pressed so the user doesn't accidentally spin the galaxy while drawing the box. Update the color logic to paint bulk-selected nodes Hot Pink.
+
+jsx
+<ForceGraph3D
+  // ... existing props
+
+  // CRITICAL: Disable orbit controls while holding Shift to draw the box
+  enableNavigation={!isShiftPressed} 
+
+  nodeColor={(node) => {
+    if (nowPlayingNode && node.id === nowPlayingNode.id) return '#10b981'; // Emerald
+    if (selectedNode && node.id === selectedNode.id) return '#f59e0b'; // Orange
     
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      {navigableTargets.slice(0, 9).map((target, index) => (
-        <div 
-          key={target.node.id}
-          onClick={() => {
-            setNavigationHistory(prev => [...prev, activeFocusNode]);
-            setSelectedNode(target.node);
-            flyToNode(target.node);
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '8px', padding: '6px',
-            background: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px',
-            cursor: 'pointer', border: '1px solid transparent',
-            transition: 'border-color 0.2s'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
-          onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
-        >
-          {/* Number Key Badge */}
-          <div style={{ 
-            width: 20, height: 20, background: '#334155', borderRadius: '4px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '11px', fontWeight: 'bold', flexShrink: 0
-          }}>
-            {index + 1}
-          </div>
-          
-          {/* Target Info */}
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {target.node.label || target.node.title}
-            </div>
-            <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {target.node.artist}
-            </div>
-          </div>
-          
-          {/* Match Score (Optional) */}
-          <div style={{ fontSize: '10px', color: '#10b981' }}>
-            {Math.round(target.weight * 100)}%
-          </div>
-        </div>
-      ))}
-    </div>
+    // NEW: Hot Pink for bulk selection
+    if (bulkSelection.has(node.id)) return '#ec4899'; 
+
+    if (colorMode === 'genre') return stringToColor(node.genre);
+    if (colorMode === 'bpm') return bpmToColor(node.bpm);
+    if (colorMode === 'year') return yearToColor(node.year);
+    return node.kind === 'track' ? '#7c3aed' : '#0ea5e9';
+  }}
+
+  nodeVal={(node) => {
+    const baseSize = Math.max(2, Math.log10(node.listeners || 10));
+    if (nowPlayingNode && node.id === nowPlayingNode.id) return baseSize * 2.5;
+    if (selectedNode && node.id === selectedNode.id) return baseSize * 1.5;
+    
+    // Slightly enlarge bulk-selected nodes
+    if (bulkSelection.has(node.id)) return baseSize * 1.3; 
+    return baseSize;
+  }}
+/>
+4. Render the UI (The Drawn Box & Action Bar)
+At the bottom of your main wrapper <div>, render the translucent HTML box the user is actively drawing, and a floating Action Bar to send the tracks to the Studio Context.
+
+jsx
+{/* The Translucent Drawing Box */}
+{dragBox && (
+  <div style={{
+    position: 'absolute',
+    left: Math.min(dragBox.x1, dragBox.x2),
+    top: Math.min(dragBox.y1, dragBox.y2),
+    width: Math.abs(dragBox.x2 - dragBox.x1),
+    height: Math.abs(dragBox.y2 - dragBox.y1),
+    backgroundColor: 'rgba(236, 72, 153, 0.15)', // Translucent Pink
+    border: '1px solid #ec4899',
+    pointerEvents: 'none',
+    zIndex: 2000
+  }} />
+)}
+
+{/* Bulk Action Bar */}
+{bulkSelection.size > 0 && (
+  <div style={{
+    position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+    background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(8px)',
+    border: '1px solid #ec4899', borderRadius: 32, padding: '8px 16px',
+    display: 'flex', alignItems: 'center', gap: 16, zIndex: 1000,
+    boxShadow: '0 10px 25px -5px rgba(236, 72, 153, 0.3)'
+  }}>
+    <span style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '14px' }}>
+      {bulkSelection.size} Tracks Selected
+    </span>
+    <button 
+      style={{ background: '#ec4899', color: 'white', border: 'none', padding: '6px 16px', borderRadius: 16, cursor: 'pointer', fontWeight: 'bold' }}
+      onClick={() => {
+        // Send all selected nodes to the Studio Context
+        bulkSelection.forEach(id => {
+          const node = graphData.nodes.find(n => n.id === id);
+          if (node) queueForImport(node);
+        });
+        setBulkSelection(new Set()); // Clear selection
+      }}
+    >
+      ➕ Send to Studio
+    </button>
+    <button 
+      style={{ background: 'transparent', color: '#94a3b8', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+      onClick={() => setBulkSelection(new Set())}
+    >
+      Clear
+    </button>
   </div>
 )}
