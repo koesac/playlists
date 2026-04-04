@@ -228,7 +228,7 @@ jsx
 
 
 
-
+librarty controls removes tracks from view but not from the similar tracks nav?
 
 
 asdd two point sliders for year like we have for the others
@@ -239,6 +239,7 @@ allow search to show and add new tracks
 
 allow ghost nodes for related tracks not already saved
 
+allow filter on playlists. and colourise by playlists
 
 
 

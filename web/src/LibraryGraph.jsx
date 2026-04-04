@@ -1252,9 +1252,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                   </div>
                 </div>
 
-                {/* Match Score */}
-                <div style={{ fontSize: '10px', color: '#10b981' }}>
-                  {Math.round(target.weight * 100)}%
+                {/* Match Score - Similarity Bar */}
+                <div style={{ width: 60, flexShrink: 0 }}>
+                  <div className="ghost-similarity-bar">
+                    <div
+                      className="ghost-bar sim"
+                      style={{ width: `${Math.max(8, Math.round(target.weight * 100))}%` }}
+                    />
+                  </div>
                 </div>
               </div>
             )) : (
