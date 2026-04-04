@@ -33,7 +33,6 @@ async function syncPlaylistToLibrary(playlistTracks) {
     } else if (track.details && track.details.track && track.details.track.tags) {
       genres = track.details.track.tags.slice(0, 3).join(', ');
     }
-    const genre = genres ? genres.split(', ')[0] : (track.genre || null);
 
     // 2. Extract Release Year - will be overridden by audio features if available
     let year = track.year || null;
@@ -42,13 +41,13 @@ async function syncPlaylistToLibrary(playlistTracks) {
       if (!isNaN(parsed) && parsed > 1900) year = parsed;
     }
 
-    // 3. Fetch audio features (bpm, danceability, acousticness, year, album) using the GetSong API provider
+    // 3. Fetch audio features (bpm, danceability, acousticness, year, album, genres) using the GetSong API provider
     // (This uses Redis caching under the hood, so it's safe to call in a loop)
     let bpm = track.bpm || null;
     let danceability = track.danceability || null;
     let acousticness = track.acousticness || null;
-    // Fetch if any of these fields are missing
-    if (!bpm || !danceability || !year) {
+    // Fetch if any of these fields are missing, or if genres are not set
+    if (!bpm || !danceability || !year || !genres) {
       try {
         const features = await getAudioFeatures(trackArtist, trackTitle);
         if (features) {
@@ -57,13 +56,20 @@ async function syncPlaylistToLibrary(playlistTracks) {
           if (features.acousticness != null) acousticness = parseFloat(features.acousticness);
           // Use GetSong year as the primary source (more accurate than meta parsing)
           if (features.year) year = features.year;
+          // Use GetSong genres as fallback if not already set from track tags
+          if (features.genres && !genres) {
+            genres = features.genres;
+          }
         }
       } catch (err) {
         console.warn(`[Sync] Failed to fetch audio features for ${trackTitle} by ${trackArtist}`);
       }
     }
 
-    // 4. Upsert the track as a library node with enriched metadata
+    // 4. Derive single genre from genres array (for filtering/backwards compat)
+    const genre = genres ? genres.split(', ')[0] : (track.genre || null);
+
+    // 5. Upsert the track as a library node with enriched metadata
     upsertLibraryNode({
       id: track.id,
       title: trackTitle,

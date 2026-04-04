@@ -61,10 +61,15 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
   // Filter and color state
   const [colorMode, setColorMode] = useState('default'); // 'default', 'genre', 'bpm', 'year'
+  const [controlsMinimized, setControlsMinimized] = useState(true);
   const [filters, setFilters] = useState({
     genre: 'All',
-    minBpm: 0,
-    maxBpm: 300,
+    minBpm: 60,
+    maxBpm: 200,
+    minDanceability: 0,
+    maxDanceability: 1,
+    minAcousticness: 0,
+    maxAcousticness: 1,
     minYear: 1900,
     maxYear: new Date().getFullYear()
   });
@@ -361,6 +366,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     if (node.kind !== 'track') return true; // Always show artists/genres
     if (filters.genre !== 'All' && node.genre !== filters.genre) return false;
     if (node.bpm && (node.bpm < filters.minBpm || node.bpm > filters.maxBpm)) return false;
+    if (node.danceability != null && (node.danceability < filters.minDanceability || node.danceability > filters.maxDanceability)) return false;
+    if (node.acousticness != null && (node.acousticness < filters.minAcousticness || node.acousticness > filters.maxAcousticness)) return false;
     if (node.year && (node.year < filters.minYear || node.year > filters.maxYear)) return false;
     return true;
   }, [filters]);
@@ -369,6 +376,207 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const uniqueGenres = useMemo(() => {
     return Array.from(new Set(graphData.nodes.map(n => n.genre).filter(Boolean))).sort();
   }, [graphData.nodes]);
+
+  // Dual-range slider component for BPM (integer range)
+  function DualRangeSlider({ min, max, trackGradient, filterKey }) {
+    const trackRef = useRef(null);
+    const [dragging, setDragging] = useState(null); // 'min' or 'max'
+
+    // Absolute bounds for the track
+    const trackMin = 60;
+    const trackMax = 200;
+    const trackRange = trackMax - trackMin;
+
+    const handlePointerDown = useCallback((which) => (e) => {
+      e.preventDefault();
+      setDragging(which);
+    }, []);
+
+    const handlePointerMove = useCallback((e) => {
+      if (!dragging || !trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const value = trackMin + pct * trackRange;
+
+      if (dragging === 'min') {
+        setFilters(prev => ({ ...prev, [`min${filterKey}`]: Math.min(Math.round(value), prev[`max${filterKey}`]) }));
+      } else {
+        setFilters(prev => ({ ...prev, [`max${filterKey}`]: Math.max(Math.round(value), prev[`min${filterKey}`]) }));
+      }
+    }, [dragging, filterKey, trackMin, trackRange]);
+
+    const handlePointerUp = useCallback(() => {
+      setDragging(null);
+    }, []);
+
+    useEffect(() => {
+      if (dragging) {
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerUp);
+        window.addEventListener('touchmove', handlePointerMove);
+        window.addEventListener('touchend', handlePointerUp);
+        return () => {
+          window.removeEventListener('mousemove', handlePointerMove);
+          window.removeEventListener('mouseup', handlePointerUp);
+          window.removeEventListener('touchmove', handlePointerMove);
+          window.removeEventListener('touchend', handlePointerUp);
+        };
+      }
+    }, [dragging, handlePointerMove, handlePointerUp]);
+
+    const minPct = ((min - 60) / 140) * 100;
+    const maxPct = ((max - 60) / 140) * 100;
+
+    return (
+      <div
+        ref={trackRef}
+        style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
+      >
+        {/* Visual track */}
+        <div style={{
+          position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
+          transform: 'translateY(-50%)', borderRadius: 3,
+          background: trackGradient || 'linear-gradient(to right, #3b82f6, #ef4444)',
+          zIndex: 0
+        }} />
+        {/* Selected range highlight */}
+        <div style={{
+          position: 'absolute', top: '50%', height: 6,
+          transform: 'translateY(-50%)', borderRadius: 3,
+          left: `${minPct}%`,
+          width: `${maxPct - minPct}%`,
+          background: 'rgba(124, 58, 237, 0.6)',
+          zIndex: 1
+        }} />
+        {/* Min thumb */}
+        <div
+          onMouseDown={handlePointerDown('min')}
+          onTouchStart={handlePointerDown('min')}
+          style={{
+            position: 'absolute', top: '50%', width: 22, height: 22,
+            transform: 'translate(-50%, -50%)', borderRadius: '50%',
+            left: `${minPct}%`,
+            background: '#3b82f6', border: '2px solid #1e293b',
+            boxShadow: dragging === 'min' ? '0 0 0 4px rgba(59, 130, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+            zIndex: 3, cursor: 'grab'
+          }}
+        />
+        {/* Max thumb */}
+        <div
+          onMouseDown={handlePointerDown('max')}
+          onTouchStart={handlePointerDown('max')}
+          style={{
+            position: 'absolute', top: '50%', width: 22, height: 22,
+            transform: 'translate(-50%, -50%)', borderRadius: '50%',
+            left: `${maxPct}%`,
+            background: '#ef4444', border: '2px solid #1e293b',
+            boxShadow: dragging === 'max' ? '0 0 0 4px rgba(239, 68, 68, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+            zIndex: 3, cursor: 'grab'
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Normalized dual-range slider (0-1 range)
+  function NormalizedDualRangeSlider({ minVal, maxVal, onChange, label, trackGradient }) {
+    const trackRef = useRef(null);
+    const [dragging, setDragging] = useState(null);
+
+    const handlePointerDown = useCallback((which) => (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragging(which);
+    }, []);
+
+    const handlePointerMove = useCallback((e) => {
+      if (!dragging || !trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+
+      if (dragging === 'min') {
+        onChange({ min: Math.min(pct, maxVal), max: maxVal });
+      } else {
+        onChange({ min: minVal, max: Math.max(pct, minVal) });
+      }
+    }, [dragging, minVal, maxVal, onChange]);
+
+    const handlePointerUp = useCallback(() => {
+      setDragging(null);
+    }, []);
+
+    useEffect(() => {
+      if (dragging) {
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerUp);
+        window.addEventListener('touchmove', handlePointerMove);
+        window.addEventListener('touchend', handlePointerUp);
+        return () => {
+          window.removeEventListener('mousemove', handlePointerMove);
+          window.removeEventListener('mouseup', handlePointerUp);
+          window.removeEventListener('touchmove', handlePointerMove);
+          window.removeEventListener('touchend', handlePointerUp);
+        };
+      }
+    }, [dragging, handlePointerMove, handlePointerUp]);
+
+    const minPct = minVal * 100;
+    const maxPct = maxVal * 100;
+
+    return (
+      <div
+        ref={trackRef}
+        style={{ position: 'relative', height: 24, padding: '0 4px', cursor: 'pointer' }}
+      >
+        {/* Visual track */}
+        <div style={{
+          position: 'absolute', top: '50%', left: 0, right: 0, height: 6,
+          transform: 'translateY(-50%)', borderRadius: 3,
+          background: trackGradient,
+          zIndex: 0
+        }} />
+        {/* Selected range highlight */}
+        <div style={{
+          position: 'absolute', top: '50%', height: 6,
+          transform: 'translateY(-50%)', borderRadius: 3,
+          left: `${minPct}%`,
+          width: `${maxPct - minPct}%`,
+          background: 'rgba(124, 58, 237, 0.6)',
+          zIndex: 1
+        }} />
+        {/* Min thumb */}
+        <div
+          onMouseDown={handlePointerDown('min')}
+          onTouchStart={handlePointerDown('min')}
+          style={{
+            position: 'absolute', top: '50%', width: 22, height: 22,
+            transform: 'translate(-50%, -50%)', borderRadius: '50%',
+            left: `${minPct}%`,
+            background: trackGradient.includes('#8b5cf6') ? '#8b5cf6' : '#22d3ee',
+            border: '2px solid #1e293b',
+            boxShadow: dragging === 'min' ? '0 0 0 4px rgba(139, 92, 246, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+            zIndex: 3, cursor: 'grab'
+          }}
+        />
+        {/* Max thumb */}
+        <div
+          onMouseDown={handlePointerDown('max')}
+          onTouchStart={handlePointerDown('max')}
+          style={{
+            position: 'absolute', top: '50%', width: 22, height: 22,
+            transform: 'translate(-50%, -50%)', borderRadius: '50%',
+            left: `${maxPct}%`,
+            background: trackGradient.includes('#ec4899') ? '#ec4899' : '#f59e0b',
+            border: '2px solid #1e293b',
+            boxShadow: dragging === 'max' ? '0 0 0 4px rgba(236, 72, 153, 0.3)' : '0 2px 6px rgba(0,0,0,0.3)',
+            zIndex: 3, cursor: 'grab'
+          }}
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -406,53 +614,181 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
       {/* Control Panel Overlay */}
       <div style={{
-        position: 'absolute', top: 20, right: 20, width: 280,
+        position: 'absolute', top: 20, right: 20,
         background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
-        padding: 16, borderRadius: 8, color: '#f8fafc', zIndex: 1000, border: '1px solid #334155'
+        padding: controlsMinimized ? '8px 12px' : '16px',
+        borderRadius: 8, color: '#f8fafc', zIndex: 1000, border: '1px solid #334155',
+        minWidth: controlsMinimized ? 'auto' : 280,
+        transition: 'all 0.2s ease'
       }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Library Controls</h3>
-
-        {/* Color Mode */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 4 }}>Colorize By</label>
-          <select
-            value={colorMode}
-            onChange={(e) => setColorMode(e.target.value)}
-            style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 6, borderRadius: 4 }}
+        {/* Header with toggle */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: controlsMinimized ? 0 : 16 }}>
+          {!controlsMinimized && <h3 style={{ margin: 0, fontSize: '16px' }}>Library Controls</h3>}
+          <button
+            onClick={() => setControlsMinimized(!controlsMinimized)}
+            style={{
+              background: 'transparent', border: 'none', color: '#94a3b8',
+              cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center',
+              fontSize: 18, lineHeight: 1
+            }}
+            title={controlsMinimized ? 'Expand controls' : 'Minimize controls'}
           >
-            <option value="default">Default (Entity Type)</option>
-            <option value="genre">Genre</option>
-            <option value="bpm">BPM Heatmap</option>
-            <option value="year">Release Year</option>
-          </select>
+            {controlsMinimized ? '⚙' : '✕'}
+          </button>
         </div>
 
-        {/* BPM Filter */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 4 }}>
-            Max BPM: {filters.maxBpm}
-          </label>
-          <input
-            type="range" min="60" max="300" value={filters.maxBpm}
-            onChange={(e) => setFilters({...filters, maxBpm: parseInt(e.target.value)})}
-            style={{ width: '100%' }}
-          />
-        </div>
+        {/* Minimized state - show active filters as pills */}
+        {controlsMinimized && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <span
+              style={{
+                padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                background: colorMode !== 'default' ? 'rgba(124, 58, 237, 0.3)' : 'rgba(148, 163, 184, 0.1)',
+                border: `1px solid ${colorMode !== 'default' ? 'rgba(124, 58, 237, 0.5)' : 'rgba(148, 163, 184, 0.2)'}`,
+                color: colorMode !== 'default' ? '#c084fc' : '#94a3b8',
+                cursor: 'pointer'
+              }}
+              onClick={() => setControlsMinimized(false)}
+            >
+              {colorMode === 'default' ? 'Default' : colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
+            </span>
+            {filters.genre !== 'All' && (
+              <span
+                style={{
+                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                  background: 'rgba(34, 197, 94, 0.2)', border: '1px solid rgba(34, 197, 94, 0.4)',
+                  color: '#4ade80', cursor: 'pointer'
+                }}
+                onClick={() => setControlsMinimized(false)}
+              >
+                {filters.genre}
+              </span>
+            )}
+            {(filters.minBpm > 60 || filters.maxBpm < 200) && (
+              <span
+                style={{
+                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                  background: 'rgba(245, 158, 11, 0.2)', border: '1px solid rgba(245, 158, 11, 0.4)',
+                  color: '#fbbf24', cursor: 'pointer'
+                }}
+                onClick={() => setControlsMinimized(false)}
+              >
+                {filters.minBpm}-{filters.maxBpm} BPM
+              </span>
+            )}
+            {(filters.minDanceability > 0 || filters.maxDanceability < 1) && (
+              <span
+                style={{
+                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                  background: 'rgba(168, 85, 247, 0.2)', border: '1px solid rgba(168, 85, 247, 0.4)',
+                  color: '#c084fc', cursor: 'pointer'
+                }}
+                onClick={() => setControlsMinimized(false)}
+              >
+                💃 {Math.round(filters.minDanceability * 100)}-{Math.round(filters.maxDanceability * 100)}%
+              </span>
+            )}
+            {(filters.minAcousticness > 0 || filters.maxAcousticness < 1) && (
+              <span
+                style={{
+                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                  background: 'rgba(34, 211, 238, 0.2)', border: '1px solid rgba(34, 211, 238, 0.4)',
+                  color: '#22d3ee', cursor: 'pointer'
+                }}
+                onClick={() => setControlsMinimized(false)}
+              >
+                🎸 {Math.round(filters.minAcousticness * 100)}-{Math.round(filters.maxAcousticness * 100)}%
+              </span>
+            )}
+          </div>
+        )}
 
-        {/* Genre Filter */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 4 }}>Filter Genre</label>
-          <select
-            value={filters.genre}
-            onChange={(e) => setFilters({...filters, genre: e.target.value})}
-            style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 6, borderRadius: 4 }}
-          >
-            <option value="All">All Genres</option>
-            {uniqueGenres.map(g => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
-        </div>
+        {/* Expanded controls */}
+        {!controlsMinimized && (
+          <>
+            {/* Color Mode - Pill Select */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[
+                  { value: 'default', label: 'Default' },
+                  { value: 'genre', label: 'Genre' },
+                  { value: 'bpm', label: 'BPM' },
+                  { value: 'year', label: 'Year' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setColorMode(opt.value)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                      background: colorMode === opt.value ? 'rgba(124, 58, 237, 0.35)' : 'rgba(148, 163, 184, 0.1)',
+                      border: `1px solid ${colorMode === opt.value ? 'rgba(124, 58, 237, 0.7)' : 'rgba(148, 163, 184, 0.25)'}`,
+                      color: colorMode === opt.value ? '#c084fc' : '#94a3b8',
+                      cursor: 'pointer', transition: 'all 0.15s ease',
+                      fontWeight: colorMode === opt.value ? 600 : 400
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* BPM Filter - Two Point Slider */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
+                BPM Range: {filters.minBpm} – {filters.maxBpm}
+              </label>
+              <DualRangeSlider
+                min={filters.minBpm}
+                max={filters.maxBpm}
+                trackGradient="linear-gradient(to right, #3b82f6, #ef4444)"
+                filterKey="Bpm"
+              />
+            </div>
+
+            {/* Danceability Filter - Two Point Slider */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
+                Danceability: {Math.round(filters.minDanceability * 100)}% – {Math.round(filters.maxDanceability * 100)}%
+              </label>
+              <NormalizedDualRangeSlider
+                minVal={filters.minDanceability}
+                maxVal={filters.maxDanceability}
+                onChange={({ min, max }) => setFilters(prev => ({ ...prev, minDanceability: min, maxDanceability: max }))}
+                trackGradient="linear-gradient(to right, #8b5cf6, #ec4899)"
+              />
+            </div>
+
+            {/* Acousticness Filter - Two Point Slider */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
+                Acousticness: {Math.round(filters.minAcousticness * 100)}% – {Math.round(filters.maxAcousticness * 100)}%
+              </label>
+              <NormalizedDualRangeSlider
+                minVal={filters.minAcousticness}
+                maxVal={filters.maxAcousticness}
+                onChange={({ min, max }) => setFilters(prev => ({ ...prev, minAcousticness: min, maxAcousticness: max }))}
+                trackGradient="linear-gradient(to right, #22d3ee, #f59e0b)"
+              />
+            </div>
+
+            {/* Genre Filter */}
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 4 }}>Filter Genre</label>
+              <select
+                value={filters.genre}
+                onChange={(e) => setFilters({...filters, genre: e.target.value})}
+                style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 6, borderRadius: 4 }}
+              >
+                <option value="All">All Genres</option>
+                {uniqueGenres.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Floating Search Bar */}
@@ -797,16 +1133,23 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         cooldownTicks={0}
         nodeResolution={8}
         nodeColor={(n) => {
-          if (n.id === selectedNode?.id) return "#f59e0b";
-          if (!passesFilters(n)) return defaultNodeColor(n); // Color doesn't matter if hidden
+          // 1. Highest Priority: Playing Node
+          if (nowPlayingNode && n.id === nowPlayingNode.id) return '#10b981'; // Neon Emerald
+          // 2. Second Priority: Selected Node
+          if (selectedNode && n.id === selectedNode.id) return '#f59e0b'; // Orange
+          // 3. Fallback to existing colorMode logic
+          if (!passesFilters(n)) return defaultNodeColor(n);
           if (colorMode === 'genre') return stringToColor(n.genre);
           if (colorMode === 'bpm') return bpmToColor(n.bpm);
           if (colorMode === 'year') return yearToColor(n.year);
           return defaultNodeColor(n);
         }}
-        nodeVal={(n) =>
-          n.id === selectedNode?.id ? 15 : nodeVal(n)
-        }
+        nodeVal={(n) => {
+          const baseSize = Math.max(2, Math.log10(n.listeners || 10));
+          if (nowPlayingNode && n.id === nowPlayingNode.id) return baseSize * 2.5; // Bulge while playing
+          if (selectedNode && n.id === selectedNode.id) return baseSize * 1.5;
+          return baseSize;
+        }}
         nodeRelSize={1}
         backgroundColor="#020617"
         showNavInfo={false}
@@ -833,6 +1176,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
         // ── Link visibility: show links connected to hovered or selected node AND passing filters ──
         linkVisibility={(link) => {
+          if (!hoveredNode && !selectedNode && !nowPlayingNode) return false;
+
           const sourceId = typeof link.source === "object" ? link.source.id : link.source;
           const targetId = typeof link.target === "object" ? link.target.id : link.target;
 
@@ -841,22 +1186,36 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           const targetNode = graphData.nodes.find(n => n.id === targetId);
           if (!passesFilters(sourceNode) || !passesFilters(targetNode)) return false;
 
-          if (!hoveredNode && !selectedNode) return false;
-
           const isHovered = hoveredNode && (sourceId === hoveredNode.id || targetId === hoveredNode.id);
           const isSelected = selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id);
+          const isPlaying = nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id);
 
-          return isHovered || isSelected;
+          return isHovered || isSelected || isPlaying;
         }}
         linkColor={(link) => {
           const sourceId = typeof link.source === "object" ? link.source.id : link.source;
           const targetId = typeof link.target === "object" ? link.target.id : link.target;
 
-          if (selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id)) {
-            return "#f59e0b"; // Amber/Orange for the clicked/searched node
+          if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
+            return 'rgba(16, 185, 129, 0.8)'; // Bright Emerald for playing
           }
-          return "#a855f7"; // Brighter purple for mouse hover
+          if (selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id)) {
+            return '#f59e0b'; // Orange for selected
+          }
+          return '#7c3aed'; // Purple for hovered
         }}
+        linkDirectionalParticles={(link) => {
+          const sourceId = typeof link.source === "object" ? link.source.id : link.source;
+          const targetId = typeof link.target === "object" ? link.target.id : link.target;
+
+          // Only animate particles for the currently playing track
+          if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
+            return 4; // Number of particles flowing along each line
+          }
+          return 0; // No particles for hovered/selected nodes to save GPU power
+        }}
+        linkDirectionalParticleWidth={2}
+        linkDirectionalParticleSpeed={0.01}
         linkWidth={1}
         linkOpacity={0.8}
 

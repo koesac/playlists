@@ -875,6 +875,11 @@ async function getAudioFeatures(artist, title) {
       // Extract album title
       if (result.album?.title) features.album = result.album.title;
 
+      // Extract genres from the GetSong API response (nested in artist.genres)
+      if (result.artist?.genres && Array.isArray(result.artist.genres)) {
+        features.genres = result.artist.genres.slice(0, 3).join(', ');
+      }
+
       return Object.keys(features).length > 0 ? features : null;
     } catch {
       return null;
