@@ -1350,25 +1350,38 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           const targetId = typeof link.target === "object" ? link.target.id : link.target;
 
           if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
-            return 'rgba(16, 185, 129, 0.8)'; // Bright Emerald for playing
+            return 'rgba(16, 185, 129, 0.3)'; // Dimmed green tube so the bright particles pop inside it
           }
           if (selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id)) {
             return '#f59e0b'; // Orange for selected
           }
-          return '#7c3aed'; // Purple for hovered
+          return 'rgba(124, 58, 237, 0.6)'; // Purple
         }}
         linkDirectionalParticles={(link) => {
+          if (!nowPlayingNode) return 0;
           const sourceId = typeof link.source === "object" ? link.source.id : link.source;
           const targetId = typeof link.target === "object" ? link.target.id : link.target;
 
-          // Only animate particles for the currently playing track
-          if (nowPlayingNode && (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id)) {
-            return 4; // Number of particles flowing along each line
+          if (sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id) {
+            return 2; // Reduced from 4 for a cleaner, heartbeat-like pulse
           }
-          return 0; // No particles for hovered/selected nodes to save GPU power
+          return 0;
         }}
-        linkDirectionalParticleWidth={2}
-        linkDirectionalParticleSpeed={0.01}
+        linkDirectionalParticleWidth={1.2} // Thinner, sleeker energy beads
+        linkDirectionalParticleSpeed={(link) => {
+          if (!nowPlayingNode) return 0;
+          const sourceId = typeof link.source === "object" ? link.source.id : link.source;
+          const targetId = typeof link.target === "object" ? link.target.id : link.target;
+
+          if (sourceId === nowPlayingNode.id) {
+            return 0.006; // Flow forward (outward from source)
+          }
+          if (targetId === nowPlayingNode.id) {
+            return -0.006; // Flow backward (outward from target)
+          }
+          return 0;
+        }}
+        linkDirectionalParticleColor={() => '#10b981'} // Force them to match the Neon Emerald node
         linkWidth={1}
         linkOpacity={0.8}
 
