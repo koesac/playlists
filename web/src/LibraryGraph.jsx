@@ -648,28 +648,36 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const navigableTargets = useMemo(() => {
     if (!nowPlayingNode || !graphData.links) return [];
 
-    // History is now an array of strings (IDs), so we can just use a Set of those strings
     const historyIds = new Set(navigationHistory);
 
-    const connections = graphData.links.filter(link => {
-      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-      return sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id;
-    });
+    // Accumulate unique targets by node ID, keeping highest weight per pair
+    const byNodeId = new Map();
 
-    return connections.map(link => {
+    graphData.links.forEach(link => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+      if (sourceId !== nowPlayingNode.id && targetId !== nowPlayingNode.id) return;
+
       const targetNodeId = sourceId === nowPlayingNode.id ? targetId : sourceId;
 
+      // Exclude self-references
+      if (targetNodeId === nowPlayingNode.id) return;
+
       const targetNode = graphData.nodes.find(n => n.id === targetNodeId);
-      return { node: targetNode, weight: link.weight };
-    })
-    .filter(t => t.node)
-    // Check if the target's ID is in our simple Set of visited IDs
-    .filter(t => !historyIds.has(t.node.id))
-    .sort((a, b) => b.weight - a.weight);
-  }, [nowPlayingNode?.id, graphData.links, navigationHistory]); // Use specific dependencies!
+      if (!targetNode) return;
+
+      // Keep entry only if it's new or has a higher weight than the existing entry
+      if (!byNodeId.has(targetNodeId) || byNodeId.get(targetNodeId).weight < link.weight) {
+        byNodeId.set(targetNodeId, { node: targetNode, weight: link.weight });
+      }
+    });
+
+    return Array.from(byNodeId.values())
+      .filter(t => !historyIds.has(t.node.id))
+      .filter(t => t.node.kind === 'track') // only tracks are navigable
+      .sort((a, b) => b.weight - a.weight);
+  }, [nowPlayingNode?.id, graphData.links, graphData.nodes, navigationHistory]);
 
   // Keyboard navigation: ArrowUp (forward to #1), ArrowDown (infinite undo), 1-9 (specific target)
   useEffect(() => {
@@ -776,18 +784,20 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         {/* Minimized state - show active filters as pills */}
         {controlsMinimized && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-            <span
-              style={{
-                padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                background: 'rgba(124, 58, 237, 0.3)',
-                border: '1px solid rgba(124, 58, 237, 0.5)',
-                color: '#c084fc',
-                cursor: 'pointer'
-              }}
-              onClick={() => setControlsMinimized(false)}
-            >
-              {colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
-            </span>
+            {colorMode !== 'genre' && (
+              <span
+                style={{
+                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
+                  background: 'rgba(124, 58, 237, 0.3)',
+                  border: '1px solid rgba(124, 58, 237, 0.5)',
+                  color: '#c084fc',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setControlsMinimized(false)}
+              >
+                {colorMode === 'bpm' ? 'BPM' : 'Year'}
+              </span>
+            )}
             {filters.genre !== 'All' && (
               <span
                 style={{
@@ -1192,7 +1202,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
       {/* Navigable Targets Aside */}
       {nowPlayingNode && (navigableTargets.length > 0 || navigationHistory.length > 0) && (
-        <div style={{
+        <div
+          key={nowPlayingNode.id}
+          style={{
           position: 'absolute', bottom: 24, right: 24, width: 280,
           background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
