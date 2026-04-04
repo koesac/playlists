@@ -824,21 +824,21 @@ async function searchItunesTracks(q, limit = 12) {
   });
 }
 
-// --- GetSongBPM integration ---
+// --- GetSong integration ---
 async function getBPM(artist, title) {
   const key = `bpm:${artist.toLowerCase()}:${title.toLowerCase()}`;
   return cacheJson(key, 86400 * 30, async () => { // Cache for 30 days
     if (!GETSONGBPM_API_KEY) return null;
-    const url = `https://api.getsongbpm.com/v2/search?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
+    const url = `https://api.getsong.co/search/?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
 
     try {
       const res = await fetch(url);
       if (!res.ok) return null;
       const json = await res.json();
-      // GetSongBPM returns results with tempo information
-      const result = json?.result?.[0];
-      if (result && result.bpm) {
-        return Math.round(result.bpm);
+      // GetSong returns results in "search" array with "tempo" field
+      const result = json?.search?.[0];
+      if (result && result.tempo) {
+        return Math.round(parseInt(result.tempo));
       }
       return null;
     } catch {
@@ -847,26 +847,33 @@ async function getBPM(artist, title) {
   });
 }
 
-// --- GetSongBPM audio features integration (bpm, danceability, energy, acousticness, liveliness) ---
+// --- GetSong audio features integration (bpm, danceability, acousticness, year, album) ---
 async function getAudioFeatures(artist, title) {
   const key = `audiofeatures:${artist.toLowerCase()}:${title.toLowerCase()}`;
   return cacheJson(key, 86400 * 30, async () => { // Cache for 30 days
     if (!GETSONGBPM_API_KEY) return null;
-    const url = `https://api.getsongbpm.com/v2/search?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
+    const url = `https://api.getsong.co/search/?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
 
     try {
       const res = await fetch(url);
       if (!res.ok) return null;
       const json = await res.json();
-      const result = json?.result?.[0];
+      const result = json?.search?.[0];
       if (!result) return null;
 
       const features = {};
-      if (result.bpm || result.tempo) features.bpm = Math.round(result.bpm || result.tempo);
-      if (result.danceability != null) features.danceability = parseFloat(result.danceability);
-      if (result.energy != null) features.energy = parseFloat(result.energy);
-      if (result.acousticness != null) features.acousticness = parseFloat(result.acousticness);
-      if (result.liveness != null || result.liveliness != null) features.liveness = parseFloat(result.liveness != null ? result.liveness : result.liveliness);
+      // tempo is a string like "93", danceability/acousticness are 0-100 scale
+      if (result.tempo) features.bpm = Math.round(parseInt(result.tempo));
+      // Convert 0-100 scale to 0-1 scale for consistency with Spotify-style features
+      if (result.danceability != null) features.danceability = parseFloat(result.danceability) / 100;
+      if (result.acousticness != null) features.acousticness = parseFloat(result.acousticness) / 100;
+      // Extract year from album
+      if (result.album?.year) {
+        const year = parseInt(result.album.year);
+        if (!isNaN(year) && year > 1900) features.year = year;
+      }
+      // Extract album title
+      if (result.album?.title) features.album = result.album.title;
 
       return Object.keys(features).length > 0 ? features : null;
     } catch {

@@ -35,29 +35,28 @@ async function syncPlaylistToLibrary(playlistTracks) {
     }
     const genre = genres ? genres.split(', ')[0] : (track.genre || null);
 
-    // 2. Extract Release Year securely
+    // 2. Extract Release Year - will be overridden by audio features if available
     let year = track.year || null;
     if (!year && track.meta && track.meta[0]) {
       const parsed = parseInt(String(track.meta[0]).replace(/\D/g, ''));
       if (!isNaN(parsed) && parsed > 1900) year = parsed;
     }
 
-    // 3. Fetch audio features (bpm, danceability, energy, acousticness, liveliness) using the GetSongBPM API provider
+    // 3. Fetch audio features (bpm, danceability, acousticness, year, album) using the GetSong API provider
     // (This uses Redis caching under the hood, so it's safe to call in a loop)
     let bpm = track.bpm || null;
     let danceability = track.danceability || null;
-    let energy = track.energy || null;
     let acousticness = track.acousticness || null;
-    let liveliness = track.liveliness || track.liveness || null;
-    if (!bpm || !danceability) {
+    // Fetch if any of these fields are missing
+    if (!bpm || !danceability || !year) {
       try {
         const features = await getAudioFeatures(trackArtist, trackTitle);
         if (features) {
           if (features.bpm) bpm = parseInt(features.bpm);
           if (features.danceability != null) danceability = parseFloat(features.danceability);
-          if (features.energy != null) energy = parseFloat(features.energy);
           if (features.acousticness != null) acousticness = parseFloat(features.acousticness);
-          if (features.liveness != null) liveliness = parseFloat(features.liveness);
+          // Use GetSong year as the primary source (more accurate than meta parsing)
+          if (features.year) year = features.year;
         }
       } catch (err) {
         console.warn(`[Sync] Failed to fetch audio features for ${trackTitle} by ${trackArtist}`);
@@ -78,9 +77,7 @@ async function syncPlaylistToLibrary(playlistTracks) {
       previewUrl: track.previewUrl || null,
       year,
       danceability,
-      energy,
-      acousticness,
-      liveliness
+      acousticness
     });
 
     // For tracks, fetch similar tracks from Last.fm
