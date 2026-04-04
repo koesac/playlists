@@ -235,6 +235,9 @@ asdd two point sliders for year like we have for the others
 
 include track (node) and relations (edge) counts as stats at the bottom of the library controls
 
+allow search to show and add new tracks
+
+allow ghost nodes for related tracks not already saved
 
 
 
