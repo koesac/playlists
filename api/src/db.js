@@ -10,6 +10,48 @@ try {
   // Column may already exist, ignore the error
 }
 
+// Add year column if it doesn't exist
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN year INTEGER;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
+// Add danceability column if it doesn't exist
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN danceability REAL;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
+// Add energy column if it doesn't exist
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN energy REAL;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
+// Add acousticness column if it doesn't exist
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN acousticness REAL;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
+// Add liveliness column if it doesn't exist
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN liveliness REAL;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
+// Add genres column if it doesn't exist (plural, comma-separated)
+try {
+  db.exec("ALTER TABLE library_nodes ADD COLUMN genres TEXT;");
+} catch (e) {
+  // Column may already exist, ignore the error
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS drafts (
     id TEXT PRIMARY KEY,
@@ -254,18 +296,40 @@ function getGraphData(limit = 1000) {
 // --- Library graph operations ---
 function upsertLibraryNode(node) {
   db.prepare(`
-    INSERT INTO library_nodes (id, title, artist, kind, bpm, genre, listeners, artwork_url, preview_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO library_nodes (id, title, artist, kind, bpm, genre, genres, listeners, artwork_url, preview_url, year, danceability, energy, acousticness, liveliness)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       artist = excluded.artist,
       kind = excluded.kind,
-      bpm = excluded.bpm,
-      genre = excluded.genre,
+      bpm = COALESCE(excluded.bpm, library_nodes.bpm),
+      genre = COALESCE(excluded.genre, library_nodes.genre),
+      genres = COALESCE(excluded.genres, library_nodes.genres),
       listeners = excluded.listeners,
-      artwork_url = excluded.artwork_url,
-      preview_url = excluded.preview_url
-  `).run(node.id, node.title, node.artist, node.kind, node.bpm || null, node.genre || null, node.listeners || null, node.artwork_url || null, node.previewUrl || null);
+      artwork_url = COALESCE(excluded.artwork_url, library_nodes.artwork_url),
+      preview_url = COALESCE(excluded.preview_url, library_nodes.preview_url),
+      year = COALESCE(excluded.year, library_nodes.year),
+      danceability = COALESCE(excluded.danceability, library_nodes.danceability),
+      energy = COALESCE(excluded.energy, library_nodes.energy),
+      acousticness = COALESCE(excluded.acousticness, library_nodes.acousticness),
+      liveliness = COALESCE(excluded.liveliness, library_nodes.liveliness)
+  `).run(
+    node.id,
+    node.title,
+    node.artist,
+    node.kind,
+    node.bpm || null,
+    node.genre || null,
+    node.genres || node.genre || null,
+    node.listeners || null,
+    node.artwork_url || null,
+    node.previewUrl || null,
+    node.year || null,
+    node.danceability || null,
+    node.energy || null,
+    node.acousticness || null,
+    node.liveliness || node.liveness || null
+  );
 }
 
 function insertLibraryEdge(source, target, weight) {
@@ -297,7 +361,7 @@ function findLibraryNodeByNormalizedTitle(normalizedArtist, normalizedTitle) {
 
 function getLibraryGraphData() {
   const nodes = db.prepare(`
-    SELECT id, title, artist, kind, bpm, genre, listeners, artwork_url, preview_url as previewUrl
+    SELECT id, title, artist, kind, bpm, genre, genres, listeners, artwork_url, preview_url as previewUrl, year, danceability, energy, acousticness, liveliness
     FROM library_nodes
   `).all();
 
@@ -314,9 +378,15 @@ function getLibraryGraphData() {
       kind: n.kind,
       bpm: n.bpm,
       genre: n.genre,
+      genres: n.genres,
       listeners: n.listeners,
       artwork_url: n.artwork_url,
-      previewUrl: n.previewUrl
+      previewUrl: n.previewUrl,
+      year: n.year,
+      danceability: n.danceability,
+      energy: n.energy,
+      acousticness: n.acousticness,
+      liveliness: n.liveliness
     })),
     links: links.map(l => ({
       source: l.source,

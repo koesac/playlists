@@ -73,7 +73,7 @@ function computeForceLayout(nodes, links, iterations = 300) {
 
 function entityColor(kind, alpha = 1.0) {
   const colors = {
-    track: { r: 0.486, g: 0.231, b: 0.929 },  // #7c3aed
+    track: { r: 0.659, g: 0.333, b: 0.969 },  // #a855f7 (brighter purple)
     artist: { r: 0.055, g: 0.647, b: 0.914 }, // #0ea5e9
     album: { r: 0.961, g: 0.620, b: 0.043 },  // #f59e0b
     genre: { r: 0.133, g: 0.773, b: 0.369 }   // #22c55e
@@ -248,7 +248,7 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
     directionalLight.position.set(200, 200, 400);
     scene.add(directionalLight);
 
-    const pointLight = new THREE.PointLight(0x7c3aed, 0.5, 1000);
+    const pointLight = new THREE.PointLight(0xa855f7, 0.5, 1000);
     pointLight.position.set(-200, -200, 200);
     scene.add(pointLight);
 
@@ -468,7 +468,7 @@ function WebGLGraphView({ graphData, onNodeClick, selectedNodeId }) {
         line.visible = isConnected;
         if (isConnected) {
           line.material.opacity = 0.8;
-          line.material.color.set(0x7c3aed);
+          line.material.color.set(0xa855f7);
         }
       }
     });

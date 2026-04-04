@@ -38,7 +38,7 @@ async function api(url, options = {}) {
 
 function entityColor(kind) {
   return {
-    track: "#7c3aed",
+    track: "#a855f7", // brighter purple
     artist: "#0ea5e9",
     album: "#f59e0b",
     genre: "#22c55e"

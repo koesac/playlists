@@ -4,6 +4,7 @@ A Docker Compose stack for an AI-augmented playlist discovery app using:
 - MusicBrainz for canonical search and metadata
 - Last.fm for related tracks, listeners, playcount, and tags
 - Apple iTunes Search API for 30-second previews and artwork fallback
+- [GetSongBPM](https://getsongbpm.com) for audio features (BPM, danceability, energy, acousticness, liveliness)
 - Redis for caching
 - SQLite for local draft persistence
 - React + Vite frontend
@@ -54,15 +55,18 @@ ai-playlist-studio/
 cp .env.example .env
 ```
 
-2. Edit `.env` and add your Last.fm API key and a real MusicBrainz user agent:
+2. Edit `.env` and add your API keys:
 
 ```bash
 LASTFM_API_KEY=your_lastfm_api_key
+GETSONGBPM_API_KEY=your_getsongbpm_api_key
 REDIS_URL=redis://redis:6379
 PORT=3001
 MUSICBRAINZ_USER_AGENT=AIPlaylistStudio/0.1.0 (you@example.com)
 DB_PATH=/data/app.db
 ```
+
+To get a GetSongBPM API key, visit [https://getsongbpm.com](https://getsongbpm.com) and register your app. This project is hosted at [https://github.com/koesac/playlists](https://github.com/koesac/playlists).
 
 3. Start the stack:
 

@@ -847,6 +847,34 @@ async function getBPM(artist, title) {
   });
 }
 
+// --- GetSongBPM audio features integration (bpm, danceability, energy, acousticness, liveliness) ---
+async function getAudioFeatures(artist, title) {
+  const key = `audiofeatures:${artist.toLowerCase()}:${title.toLowerCase()}`;
+  return cacheJson(key, 86400 * 30, async () => { // Cache for 30 days
+    if (!GETSONGBPM_API_KEY) return null;
+    const url = `https://api.getsongbpm.com/v2/search?api_key=${GETSONGBPM_API_KEY}&type=song&lookup=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json = await res.json();
+      const result = json?.result?.[0];
+      if (!result) return null;
+
+      const features = {};
+      if (result.bpm || result.tempo) features.bpm = Math.round(result.bpm || result.tempo);
+      if (result.danceability != null) features.danceability = parseFloat(result.danceability);
+      if (result.energy != null) features.energy = parseFloat(result.energy);
+      if (result.acousticness != null) features.acousticness = parseFloat(result.acousticness);
+      if (result.liveness != null || result.liveliness != null) features.liveness = parseFloat(result.liveness != null ? result.liveness : result.liveliness);
+
+      return Object.keys(features).length > 0 ? features : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
 // --- Similarity computation for graph edges ---
 function computeSimilarity(trackA, trackB) {
   let weight = 0;
@@ -901,6 +929,7 @@ module.exports = {
   searchDeezerArtists,
   searchItunesTracks,
   getBPM,
+  getAudioFeatures,
   computeSimilarity,
   computeAndStoreEdgesForTrack,
   hydrateSearchResults,

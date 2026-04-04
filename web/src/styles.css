@@ -21,7 +21,7 @@
   --border: rgba(148, 163, 184, 0.16);
   --text: #e2e8f0;
   --muted: #94a3b8;
-  --accent: #7c3aed;
+  --accent: #a855f7; /* brighter purple */
   --shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
 }
 
@@ -33,7 +33,7 @@
   --border: rgba(148, 163, 184, 0.24);
   --text: #0f172a;
   --muted: #64748b;
-  --accent: #7c3aed;
+  --accent: #a855f7; /* brighter purple */
   --shadow: 0 24px 60px rgba(2, 6, 23, 0.12);
 }
 
@@ -963,12 +963,12 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
   border-style: dashed;
 }
 
-.ghost-card.kind-track  { --accent: #7c3aed; }
+.ghost-card.kind-track  { --accent: #a855f7; }
 .ghost-card.kind-artist { --accent: #0ea5e9; }
 .ghost-card.kind-album  { --accent: #f59e0b; }
 .ghost-card.kind-genre  { --accent: #22c55e; }
 
-.ghost-card.relation-related-track  { border-left-color: rgb(185, 58, 231); }
+.ghost-card.relation-related-track  { border-left-color: rgb(168, 85, 247); }
 .ghost-card.relation-artist-track   { border-left-color: rgba(14, 164, 233, 0.858); }
 .ghost-card.relation-album-track    { border-left-color: rgba(255, 162, 0, 0.82); }
 
@@ -1150,7 +1150,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 }
 
 .kind-track,
-.kind-track .handle  { --accent: #7c3aed; }
+.kind-track .handle  { --accent: #a855f7; }
 
 .kind-artist,
 .kind-artist .handle { --accent: #0ea5e9; }
@@ -1616,7 +1616,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 .link-pill.opened  { border-color: rgba(34, 197, 94, 0.55); }
 .link-pill.pending { border-style: dashed; }
 
-.link-pill.link-track  { border-left-color: #7c3aed; }
+.link-pill.link-track  { border-left-color: #a855f7; }
 .link-pill.link-artist { border-left-color: #0ea5e9; }
 .link-pill.link-album  { border-left-color: #f59e0b; }
 .link-pill.link-genre  { border-left-color: #22c55e; }
@@ -1667,7 +1667,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
   background: rgba(34, 211, 238, 0.08);
 }
 
-.detail-link-row.link-track  { border-left-color: #7c3aed; }
+.detail-link-row.link-track  { border-left-color: #a855f7; }
 .detail-link-row.link-artist { border-left-color: #0ea5e9; }
 .detail-link-row.link-album  { border-left-color: #f59e0b; }
 .detail-link-row.link-genre  { border-left-color: #22c55e; }
@@ -2535,7 +2535,7 @@ body:not(.audio-unlocked) .ghost-card.hover-preview:not(.is-playing):hover::afte
 }
 
 .spinner-ring:nth-child(1) {
-  border-top-color: #7c3aed;
+  border-top-color: #a855f7;
   animation: spin 1.2s linear infinite;
 }
 

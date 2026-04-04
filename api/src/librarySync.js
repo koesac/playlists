@@ -1,5 +1,5 @@
 const { upsertLibraryNode, insertLibraryEdge, getExistingLibraryTrackIds, findLibraryNodeByNormalizedTitle } = require("./db");
-const { lastfmSimilar } = require("./providers");
+const { lastfmSimilar, getAudioFeatures } = require("./providers");
 
 /**
  * Normalize a string for matching by removing spaces and special characters.
@@ -26,17 +26,61 @@ async function syncPlaylistToLibrary(playlistTracks) {
     const trackTitle = track.title || track.raw?.title || track.label || "";
     const trackArtist = track.artist || track.raw?.artist || track.subtitle || "";
 
-    // Upsert the track as a library node
+    // 1. Extract genres as comma-separated string (top 3 tags)
+    let genres = null;
+    if (track.tags && track.tags.length > 0) {
+      genres = track.tags.slice(0, 3).join(', ');
+    } else if (track.details && track.details.track && track.details.track.tags) {
+      genres = track.details.track.tags.slice(0, 3).join(', ');
+    }
+    const genre = genres ? genres.split(', ')[0] : (track.genre || null);
+
+    // 2. Extract Release Year securely
+    let year = track.year || null;
+    if (!year && track.meta && track.meta[0]) {
+      const parsed = parseInt(String(track.meta[0]).replace(/\D/g, ''));
+      if (!isNaN(parsed) && parsed > 1900) year = parsed;
+    }
+
+    // 3. Fetch audio features (bpm, danceability, energy, acousticness, liveliness) using the GetSongBPM API provider
+    // (This uses Redis caching under the hood, so it's safe to call in a loop)
+    let bpm = track.bpm || null;
+    let danceability = track.danceability || null;
+    let energy = track.energy || null;
+    let acousticness = track.acousticness || null;
+    let liveliness = track.liveliness || track.liveness || null;
+    if (!bpm || !danceability) {
+      try {
+        const features = await getAudioFeatures(trackArtist, trackTitle);
+        if (features) {
+          if (features.bpm) bpm = parseInt(features.bpm);
+          if (features.danceability != null) danceability = parseFloat(features.danceability);
+          if (features.energy != null) energy = parseFloat(features.energy);
+          if (features.acousticness != null) acousticness = parseFloat(features.acousticness);
+          if (features.liveness != null) liveliness = parseFloat(features.liveness);
+        }
+      } catch (err) {
+        console.warn(`[Sync] Failed to fetch audio features for ${trackTitle} by ${trackArtist}`);
+      }
+    }
+
+    // 4. Upsert the track as a library node with enriched metadata
     upsertLibraryNode({
       id: track.id,
       title: trackTitle,
       artist: trackArtist,
       kind: track.kind || "track",
-      bpm: track.bpm || null,
-      genre: track.genre || null,
+      bpm,
+      genre,
+      genres,
       listeners: track.listeners || track.popularity?.listeners || null,
       artwork_url: track.artworkUrl || null,
-      previewUrl: track.previewUrl || null
+      previewUrl: track.previewUrl || null,
+      year,
+      danceability,
+      energy,
+      acousticness,
+      liveliness
     });
 
     // For tracks, fetch similar tracks from Last.fm
