@@ -362,6 +362,32 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     );
   }, []);
 
+  // Centralized playback logic: triggers audio, updates state, and flies camera
+  const triggerPlayAndFly = useCallback((node) => {
+    if (!node || node.kind !== 'track') return;
+
+    // 1. Trigger Audio
+    if (audioRef.current && node.previewUrl) {
+      if (audioRef.current.src !== node.previewUrl) {
+        audioRef.current.src = node.previewUrl;
+      }
+      audioRef.current.play().catch(e => console.warn("Playback prevented:", e));
+    }
+
+    // 2. Set State (This instantly updates the Target Pane)
+    setNowPlayingNode(node);
+    setSelectedNode(node); // Also highlight it orange
+
+    // 3. Fly Camera
+    const distance = 100;
+    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+    graphRef.current.cameraPosition(
+      { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+      node,
+      1500
+    );
+  }, []);
+
   // Handle search result click — fly camera to node
   const handleSearchResultClick = useCallback((node) => {
     setSearchQuery("");
@@ -582,59 +608,53 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     return Array.from(new Set(graphData.nodes.map(n => n.genre).filter(Boolean))).sort();
   }, [graphData.nodes]);
 
-  // Compute the nearest neighbors of the currently focused node
-  const activeFocusNode = selectedNode || nowPlayingNode;
-
+  // Compute the nearest neighbors of the currently playing node
   const navigableTargets = useMemo(() => {
-    if (!activeFocusNode || !graphData.links) return [];
+    if (!nowPlayingNode || !graphData.links) return [];
 
-    // Find all links connected to the focused node
     const connections = graphData.links.filter(link => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-      return sourceId === activeFocusNode.id || targetId === activeFocusNode.id;
+      return sourceId === nowPlayingNode.id || targetId === nowPlayingNode.id;
     });
 
-    // Map to the actual node objects and sort by highest similarity weight
-    const targets = connections.map(link => {
+    return connections.map(link => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-      const targetNodeId = sourceId === activeFocusNode.id ? targetId : sourceId;
+      const targetNodeId = sourceId === nowPlayingNode.id ? targetId : sourceId;
 
       const targetNode = graphData.nodes.find(n => n.id === targetNodeId);
       return { node: targetNode, weight: link.weight };
     })
-    .filter(t => t.node) // Ensure the node exists
-    .sort((a, b) => b.weight - a.weight); // Strongest connections first
+    .filter(t => t.node)
+    .sort((a, b) => b.weight - a.weight);
+  }, [nowPlayingNode, graphData]);
 
-    return targets;
-  }, [activeFocusNode, graphData]);
-
-  // Keyboard navigation: ArrowRight (forward), ArrowLeft (back), 1-9 (specific target)
+  // Keyboard navigation: ArrowUp (forward to #1), ArrowDown (infinite undo), 1-9 (specific target)
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Don't trigger if user is typing in the search bar
       if (document.activeElement.tagName === 'INPUT') return;
 
-      if (!activeFocusNode) return;
+      if (!nowPlayingNode) return;
 
-      // JUMP TO #1 TARGET (Forward)
-      if (e.key === 'ArrowRight') {
+      // FORWARD: ArrowUp -> Jump to Target #1
+      if (e.key === 'ArrowUp') {
+        e.preventDefault(); // Prevent page scrolling
         if (navigableTargets.length > 0) {
           const nextNode = navigableTargets[0].node;
-          setNavigationHistory(prev => [...prev, activeFocusNode]);
-          setSelectedNode(nextNode);
-          flyToNode(nextNode);
+          setNavigationHistory(prev => [...prev, nowPlayingNode]); // Save current to history
+          triggerPlayAndFly(nextNode);
         }
       }
 
-      // JUMP BACK (Backward)
-      if (e.key === 'ArrowLeft') {
+      // BACKWARD: ArrowDown -> Infinite Undo
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
         if (navigationHistory.length > 0) {
           const prevNode = navigationHistory[navigationHistory.length - 1];
           setNavigationHistory(prev => prev.slice(0, -1)); // Pop history
-          setSelectedNode(prevNode);
-          flyToNode(prevNode);
+          triggerPlayAndFly(prevNode);
         }
       }
 
@@ -642,15 +662,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9 && num <= navigableTargets.length) {
         const nextNode = navigableTargets[num - 1].node;
-        setNavigationHistory(prev => [...prev, activeFocusNode]);
-        setSelectedNode(nextNode);
-        flyToNode(nextNode);
+        setNavigationHistory(prev => [...prev, nowPlayingNode]);
+        triggerPlayAndFly(nextNode);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFocusNode, navigableTargets, navigationHistory, flyToNode]);
+  }, [nowPlayingNode, navigableTargets, navigationHistory, triggerPlayAndFly]);
 
   if (loading) {
     return (
@@ -1126,7 +1145,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       </div>
 
       {/* Navigable Targets Aside */}
-      {activeFocusNode && navigableTargets.length > 0 && (
+      {nowPlayingNode && navigableTargets.length > 0 && (
         <div style={{
           position: 'absolute', bottom: 24, right: 24, width: 280,
           background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
@@ -1136,7 +1155,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         }}>
           <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
             <span>Similar Tracks</span>
-            <span>Use 1-9 or ➡</span>
+            <span>Use 1-9 or ↑</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1144,9 +1163,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               <div
                 key={target.node.id}
                 onClick={() => {
-                  setNavigationHistory(prev => [...prev, activeFocusNode]);
-                  setSelectedNode(target.node);
-                  flyToNode(target.node);
+                  setNavigationHistory(prev => [...prev, nowPlayingNode]);
+                  triggerPlayAndFly(target.node);
                 }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '8px', padding: '6px',
