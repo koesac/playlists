@@ -277,6 +277,59 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const isPostProcessingReady = useRef(false);
   const [isIdle, setIsIdle] = useState(false);
 
+  // Device detection: separate screen size from input capability
+  // isSmallScreen — layout decisions (hamburger, bottom sheet, compact panels)
+  // isTouchDevice — interaction decisions (no hover, tap-driven playback)
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
+  const [isTouchDevice, setIsTouchDevice] = useState(
+    typeof window !== 'undefined'
+      ? window.matchMedia('(hover: none), (pointer: coarse)').matches ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0
+      : false
+  );
+
+  useEffect(() => {
+    const updateDeviceFlags = () => {
+      setIsSmallScreen(window.innerWidth <= 768);
+      setIsTouchDevice(
+        window.matchMedia('(hover: none), (pointer: coarse)').matches ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0
+      );
+    };
+    updateDeviceFlags();
+    window.addEventListener('resize', updateDeviceFlags);
+    return () => window.removeEventListener('resize', updateDeviceFlags);
+  }, []);
+
+  // Derived mode flags — use these throughout the component
+  const useTouchUI = isTouchDevice;            // interaction model
+  const useCompactMobileLayout = isSmallScreen; // layout model
+
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
+
+  // Viewport tracking for responsive desktop layout
+  const [viewportWidth, setViewportWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  );
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isCompactDesktop = viewportWidth < 1180 && !useCompactMobileLayout;
+  const isStackedTopBar = viewportWidth < 980 && !useCompactMobileLayout;
+
+  // Compact bar state for mid-sized devices
+  const [compactSearchOpen, setCompactSearchOpen] = useState(false);
+  const [compactSettingsOpen, setCompactSettingsOpen] = useState(false);
+
   // Filter and color state
   const [colorMode, setColorMode] = useState('genre'); // 'genre', 'bpm', 'year'
   const [controlsMinimized, setControlsMinimized] = useState(true);
@@ -569,8 +622,10 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     setMousePos({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // Handle node hover — debounced audio preview trigger
+  // Handle node hover — debounced audio preview trigger (disabled on touch devices)
   const handleNodeHover = useCallback((node) => {
+    if (useTouchUI) return; // no hover preview on touch devices
+
     setHoveredNode(node || null);
 
     // Clear any pending audio preview trigger
@@ -603,6 +658,15 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const handleNodeClick = useCallback((node) => {
     if (!graphRef.current || !node) return;
 
+    // Touch devices: tap = triggerPlayAndFly (audio + state + camera) only
+    // Bottom sheet opens only from explicit sheet toggle UI, not from node taps
+    // Desktop (mouse): click = select + camera only (hover handles audio)
+    if (useTouchUI) {
+      setHoveredNode(null);
+      triggerPlayAndFly(node);
+      return;
+    }
+
     // 1. Set as selected (turns orange)
     setSelectedNode(node);
 
@@ -619,7 +683,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
     // 4. Fly camera to node
     flyToNode(node);
-  }, [onNodeSelect, flyToNode]);
+  }, [useTouchUI, onNodeSelect, flyToNode, triggerPlayAndFly]);
 
   // Handle node double-click — fly camera closer (audio preview now triggered by hover)
   const handleNodeDoubleClick = useCallback((node) => {
@@ -643,6 +707,34 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   const uniqueGenres = useMemo(() => {
     return Array.from(new Set(graphData.nodes.map(n => n.genre).filter(Boolean))).sort();
   }, [graphData.nodes]);
+
+  // Clamped tooltip coordinates for desktop hover card (never renders off-screen)
+  const tooltipPos = useMemo(() => {
+    const cardWidth = 280;
+    const cardHeight = 170;
+    const gap = 16;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = mousePos.x + gap;
+    let top = mousePos.y + gap;
+
+    if (left + cardWidth > vw - 12) {
+      left = mousePos.x - cardWidth - gap;
+    }
+    if (left < 12) {
+      left = 12;
+    }
+
+    if (top + cardHeight > vh - 12) {
+      top = vh - cardHeight - 12;
+    }
+    if (top < 12) {
+      top = 12;
+    }
+
+    return { left, top };
+  }, [mousePos.x, mousePos.y]);
 
   // Compute the nearest neighbors of the currently playing node
   const navigableTargets = useMemo(() => {
@@ -674,10 +766,11 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     });
 
     return Array.from(byNodeId.values())
+      .filter(t => passesFilters(t.node))          // exclude filtered-out nodes
       .filter(t => !historyIds.has(t.node.id))
       .filter(t => t.node.kind === 'track') // only tracks are navigable
       .sort((a, b) => b.weight - a.weight);
-  }, [nowPlayingNode?.id, graphData.links, graphData.nodes, navigationHistory]);
+  }, [nowPlayingNode?.id, graphData.links, graphData.nodes, navigationHistory, passesFilters]);
 
   // Keyboard navigation: ArrowUp (forward to #1), ArrowDown (infinite undo), 1-9 (specific target)
   useEffect(() => {
@@ -756,593 +849,501 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       {/* Hidden audio element for preview playback */}
       <audio ref={audioRef} />
 
-      {/* Control Panel Overlay */}
-      <div style={{
-        position: 'absolute', top: 20, right: 20,
-        background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
-        padding: controlsMinimized ? '8px 12px' : '16px',
-        borderRadius: 8, color: '#f8fafc', zIndex: 1000, border: '1px solid #334155',
-        minWidth: controlsMinimized ? 'auto' : 280,
-        transition: 'all 0.2s ease'
-      }}>
-        {/* Header with toggle */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: controlsMinimized ? 0 : 16 }}>
-          {!controlsMinimized && <h3 style={{ margin: 0, fontSize: '16px' }}>Library Controls</h3>}
-          <button
-            onClick={() => setControlsMinimized(!controlsMinimized)}
-            style={{
-              background: 'transparent', border: 'none', color: '#94a3b8',
-              cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center',
-              fontSize: 18, lineHeight: 1
-            }}
-            title={controlsMinimized ? 'Expand controls' : 'Minimize controls'}
-          >
-            {controlsMinimized ? '⚙' : '✕'}
-          </button>
-        </div>
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* MOBILE HAMBURGER TRIGGER — small screens only */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {useCompactMobileLayout && (
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          style={{
+            position: 'absolute', top: 16, left: 16, zIndex: 2000,
+            width: 44, height: 44, borderRadius: 8,
+            background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+            border: '1px solid #334155', color: '#f8fafc',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20
+          }}
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+      )}
 
-        {/* Minimized state - show active filters as pills */}
-        {controlsMinimized && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-            {colorMode !== 'genre' && (
-              <span
-                style={{
-                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                  background: 'rgba(124, 58, 237, 0.3)',
-                  border: '1px solid rgba(124, 58, 237, 0.5)',
-                  color: '#c084fc',
-                  cursor: 'pointer'
-                }}
-                onClick={() => setControlsMinimized(false)}
-              >
-                {colorMode === 'bpm' ? 'BPM' : 'Year'}
-              </span>
-            )}
-            {filters.genre !== 'All' && (
-              <span
-                style={{
-                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                  background: 'rgba(34, 197, 94, 0.2)', border: '1px solid rgba(34, 197, 94, 0.4)',
-                  color: '#4ade80', cursor: 'pointer'
-                }}
-                onClick={() => setControlsMinimized(false)}
-              >
-                {filters.genre}
-              </span>
-            )}
-            {(filters.minBpm > 60 || filters.maxBpm < 200) && (
-              <span
-                style={{
-                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                  background: 'rgba(245, 158, 11, 0.2)', border: '1px solid rgba(245, 158, 11, 0.4)',
-                  color: '#fbbf24', cursor: 'pointer'
-                }}
-                onClick={() => setControlsMinimized(false)}
-              >
-                {filters.minBpm}-{filters.maxBpm} BPM
-              </span>
-            )}
-            {(filters.minDanceability > 0 || filters.maxDanceability < 1) && (
-              <span
-                style={{
-                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                  background: 'rgba(168, 85, 247, 0.2)', border: '1px solid rgba(168, 85, 247, 0.4)',
-                  color: '#c084fc', cursor: 'pointer'
-                }}
-                onClick={() => setControlsMinimized(false)}
-              >
-                💃 {Math.round(filters.minDanceability * 100)}-{Math.round(filters.maxDanceability * 100)}%
-              </span>
-            )}
-            {(filters.minAcousticness > 0 || filters.maxAcousticness < 1) && (
-              <span
-                style={{
-                  padding: '3px 10px', borderRadius: 999, fontSize: 11,
-                  background: 'rgba(34, 211, 238, 0.2)', border: '1px solid rgba(34, 211, 238, 0.4)',
-                  color: '#22d3ee', cursor: 'pointer'
-                }}
-                onClick={() => setControlsMinimized(false)}
-              >
-                🎸 {Math.round(filters.minAcousticness * 100)}-{Math.round(filters.maxAcousticness * 100)}%
-              </span>
-            )}
-          </div>
-        )}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* MOBILE SLIDE-IN MENU PANEL — small screens only */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {useCompactMobileLayout && mobileMenuOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setMobileMenuOpen(false)}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000 }}
+          />
+          {/* Panel */}
+          <div style={{
+            position: 'absolute', top: 0, left: 0, bottom: 0, width: '85vw', maxWidth: 340,
+            background: 'rgba(15, 23, 42, 0.97)', backdropFilter: 'blur(12px)',
+            border: '1px solid #334155', zIndex: 2100, overflowY: 'auto',
+            padding: '16px', display: 'flex', flexDirection: 'column', gap: 16
+          }}>
+            {/* Close Button */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 16 }}>Library Controls</span>
+              <button onClick={() => setMobileMenuOpen(false)} style={{ color: '#94a3b8', fontSize: 22, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+            </div>
 
-        {/* Expanded controls */}
-        {!controlsMinimized && (
-          <>
-            {/* Color Mode - Pill Select */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {[
-                  { value: 'genre', label: 'Genre' },
-                  { value: 'bpm', label: 'BPM' },
-                  { value: 'year', label: 'Year' }
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setColorMode(opt.value)}
+            {/* Search Input */}
+            <input
+              type="text"
+              placeholder="Search tracks, artists..."
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setShowDropdown(true); }}
+              onFocus={() => setShowDropdown(true)}
+              style={{
+                width: '100%', padding: '10px 14px', fontSize: 14,
+                color: '#e2e8f0', background: '#1e293b', border: '1px solid #334155',
+                borderRadius: 8, outline: 'none', boxSizing: 'border-box'
+              }}
+            />
+
+            {/* Search Results Dropdown - Inside Panel */}
+            {showDropdown && searchResults.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 300, overflowY: 'auto' }}>
+                {searchResults.map(node => (
+                  <div
+                    key={node.id}
+                    onClick={() => { handleSearchResultClick(node); setMobileMenuOpen(false); }}
                     style={{
-                      padding: '6px 14px', borderRadius: 999, fontSize: 12,
-                      background: colorMode === opt.value ? 'rgba(124, 58, 237, 0.35)' : 'rgba(148, 163, 184, 0.1)',
-                      border: `1px solid ${colorMode === opt.value ? 'rgba(124, 58, 237, 0.7)' : 'rgba(148, 163, 184, 0.25)'}`,
-                      color: colorMode === opt.value ? '#c084fc' : '#94a3b8',
-                      cursor: 'pointer', transition: 'all 0.15s ease',
-                      fontWeight: colorMode === opt.value ? 600 : 400
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                      background: '#1e293b', borderRadius: 6, cursor: 'pointer'
                     }}
                   >
-                    {opt.label}
+                    {node.artwork_url ? (
+                      <img src={node.artwork_url} alt="" style={{ width: 36, height: 36, borderRadius: 4, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 36, height: 36, borderRadius: 4, background: '#334155', flexShrink: 0 }} />
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {node.label || node.title}
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {node.artist}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Divider */}
+            <div style={{ height: 1, background: '#334155' }} />
+
+            {/* Color Mode Pills */}
+            <div>
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Colorize By</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {['default', 'genre', 'bpm', 'year'].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setColorMode(opt)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                      background: colorMode === opt ? 'rgba(124, 58, 237, 0.35)' : 'rgba(148, 163, 184, 0.1)',
+                      border: `1px solid ${colorMode === opt ? 'rgba(124, 58, 237, 0.7)' : 'rgba(148, 163, 184, 0.25)'}`,
+                      color: colorMode === opt ? '#c084fc' : '#94a3b8', cursor: 'pointer'
+                    }}
+                  >
+                    {opt.charAt(0).toUpperCase() + opt.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* BPM Filter - Two Point Slider */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
-                BPM Range: {filters.minBpm} – {filters.maxBpm}
-              </label>
+            {/* BPM Slider */}
+            <div>
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+                BPM: {filters.minBpm} – {filters.maxBpm}
+              </div>
               <DualRangeSlider
-                minVal={filters.minBpm}
-                maxVal={filters.maxBpm}
+                minVal={filters.minBpm} maxVal={filters.maxBpm}
                 onChange={({ min, max }) => setFilters(prev => ({ ...prev, minBpm: min, maxBpm: max }))}
                 trackGradient="linear-gradient(to right, #3b82f6, #ef4444)"
               />
             </div>
 
-            {/* Danceability Filter - Two Point Slider */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
+            {/* Genre Filter */}
+            <div>
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Genre</div>
+              <select
+                value={filters.genre}
+                onChange={e => setFilters({ ...filters, genre: e.target.value })}
+                style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: '8px', borderRadius: 6 }}
+              >
+                <option value="All">All Genres</option>
+                {uniqueGenres.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+
+            {/* Danceability */}
+            <div>
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
                 Danceability: {Math.round(filters.minDanceability * 100)}% – {Math.round(filters.maxDanceability * 100)}%
-              </label>
+              </div>
               <NormalizedDualRangeSlider
-                minVal={filters.minDanceability}
-                maxVal={filters.maxDanceability}
+                minVal={filters.minDanceability} maxVal={filters.maxDanceability}
                 onChange={({ min, max }) => setFilters(prev => ({ ...prev, minDanceability: min, maxDanceability: max }))}
                 trackGradient="linear-gradient(to right, #8b5cf6, #ec4899)"
               />
             </div>
 
-            {/* Acousticness Filter - Two Point Slider */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 6 }}>
+            {/* Acousticness */}
+            <div>
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
                 Acousticness: {Math.round(filters.minAcousticness * 100)}% – {Math.round(filters.maxAcousticness * 100)}%
-              </label>
+              </div>
               <NormalizedDualRangeSlider
-                minVal={filters.minAcousticness}
-                maxVal={filters.maxAcousticness}
+                minVal={filters.minAcousticness} maxVal={filters.maxAcousticness}
                 onChange={({ min, max }) => setFilters(prev => ({ ...prev, minAcousticness: min, maxAcousticness: max }))}
                 trackGradient="linear-gradient(to right, #22d3ee, #f59e0b)"
               />
             </div>
 
-            {/* Genre Filter */}
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: 4 }}>Filter Genre</label>
-              <select
-                value={filters.genre}
-                onChange={(e) => setFilters({...filters, genre: e.target.value})}
-                style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 6, borderRadius: 4 }}
+            {/* Back to Studio */}
+            <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #334155' }}>
+              <Link
+                to="/"
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, padding: '10px 16px', borderRadius: 8,
+                  background: 'rgba(124, 58, 237, 0.2)', border: '1px solid rgba(124, 58, 237, 0.4)',
+                  color: '#c084fc', fontWeight: 600, fontSize: 14, textDecoration: 'none'
+                }}
               >
-                <option value="All">All Genres</option>
-                {uniqueGenres.map(g => (
-                  <option key={g} value={g}>{g}</option>
-                ))}
-              </select>
+                ← Back to Studio
+              </Link>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
-      {/* Floating Search Bar */}
-      <div
-        style={{
-          position: "absolute",
-          top: 20,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 1000,
-          width: 400,
-        }}
-        ref={searchInputRef}
-      >
-        <input
-          type="text"
-          placeholder="Search tracks, artists, genres…"
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setShowDropdown(true);
-            setHighlightedIndex(-1);
-          }}
-          onFocus={() => setShowDropdown(true)}
-          onKeyDown={handleSearchKeyDown}
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            fontSize: "14px",
-            color: "#e2e8f0",
-            background: "rgba(15, 23, 42, 0.85)",
-            border: "1px solid #334155",
-            borderRadius: "12px",
-            outline: "none",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            boxSizing: "border-box",
-          }}
-        />
-
-        {/* Search Results Dropdown */}
-        {showDropdown && searchResults.length > 0 && (
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* COMPACT TOP BAR — mid-sized devices (769px – 1180px) */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {isCompactDesktop && (
+        <>
+          {/* Compact bar with icon buttons */}
           <div
             style={{
-              marginTop: 8,
-              background: "rgba(15, 23, 42, 0.92)",
-              border: "1px solid #334155",
-              borderRadius: "12px",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-              overflow: "hidden",
-              maxHeight: 480,
-              overflowY: "auto",
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              right: 12,
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 8px',
+              background: 'rgba(15, 23, 42, 0.9)',
+              backdropFilter: 'blur(8px)',
+              borderRadius: 10,
+              border: '1px solid #334155'
             }}
           >
-            {searchResults.map((node, index) => (
-              <div
-                key={node.id}
-                onMouseEnter={() => {
-                  handleSearchResultHover(node);
-                  setHighlightedIndex(index);
-                }}
-                onMouseLeave={handleSearchResultLeave}
-                onClick={() => handleSearchResultClick(node)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "10px 14px",
-                  cursor: "pointer",
-                  borderBottom: "1px solid rgba(51, 65, 85, 0.5)",
-                  transition: "background 0.15s ease",
-                  background: index === highlightedIndex ? "rgba(124, 58, 237, 0.15)" : "transparent",
-                }}
-              >
-                {/* Artwork */}
-                {node.artwork_url ? (
-                  <img
-                    src={node.artwork_url}
-                    alt=""
+            {/* Search button / input */}
+            <div ref={searchInputRef} style={{ flex: compactSearchOpen ? 1 : 'unset', minWidth: 0 }}>
+              {compactSearchOpen ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    placeholder="Search tracks, artists…"
+                    value={searchQuery}
+                    autoFocus
+                    onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); setHighlightedIndex(-1); }}
+                    onFocus={() => setShowDropdown(true)}
+                    onKeyDown={handleSearchKeyDown}
+                    onBlur={() => { if (!searchQuery) setCompactSearchOpen(false); }}
                     style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 6,
-                      objectFit: "cover",
-                      flexShrink: 0,
-                    }}
-                    onError={(e) => {
-                      e.target.style.display = "none";
-                      e.target.nextElementSibling.style.display = "flex";
+                      flex: 1, minWidth: 0, padding: '8px 12px', fontSize: 13,
+                      color: '#e2e8f0', background: '#1e293b', border: '1px solid #334155',
+                      borderRadius: 8, outline: 'none', boxSizing: 'border-box'
                     }}
                   />
-                ) : null}
-                <div
+                  <button onClick={() => { setCompactSearchOpen(false); setSearchQuery(''); setShowDropdown(false); }} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4, fontSize: 16 }}>✕</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setCompactSearchOpen(true)}
                   style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 6,
-                    background: node.kind === "track" ? "#a855f7" : node.kind === "artist" ? "#0ea5e9" : node.kind === "album" ? "#f59e0b" : "#22c55e",
-                    display: node.artwork_url ? "none" : "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 16,
-                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '8px 12px', background: '#1e293b', border: '1px solid #334155',
+                    borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
                   }}
                 >
-                  {node.kind === "track" ? "♪" : node.kind === "artist" ? "♫" : node.kind === "album" ? "◉" : "◆"}
-                </div>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.2-4.2" /></svg>
+                  Search
+                </button>
+              )}
 
-                {/* Text info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontWeight: 700,
-                      color: "#ffffff",
-                      fontSize: 13,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {node.label || node.title || node.name || node.id}
-                  </div>
-                  {node.artist && (
+              {/* Dropdown */}
+              {showDropdown && searchResults.length > 0 && compactSearchOpen && (
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
+                    background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #334155',
+                    borderRadius: 8, overflow: 'hidden', maxHeight: '40vh', overflowY: 'auto', zIndex: 1001
+                  }}
+                >
+                  {searchResults.map((node, index) => (
                     <div
+                      key={node.id}
+                      onMouseEnter={() => { handleSearchResultHover(node); setHighlightedIndex(index); }}
+                      onMouseLeave={handleSearchResultLeave}
+                      onClick={() => { handleSearchResultClick(node); setCompactSearchOpen(false); }}
                       style={{
-                        color: "#94a3b8",
-                        fontSize: 11,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                        cursor: 'pointer', borderBottom: '1px solid rgba(51,65,85,0.4)',
+                        background: index === highlightedIndex ? 'rgba(124,58,237,0.15)' : 'transparent'
                       }}
                     >
-                      {node.artist}
+                      <div style={{ width: 32, height: 32, borderRadius: 4, background: node.kind === 'track' ? '#a855f7' : node.kind === 'artist' ? '#0ea5e9' : '#f59e0b', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                        {node.kind === 'track' ? '♪' : node.kind === 'artist' ? '♫' : '◉'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: '#fff', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.label || node.title}</div>
+                        {node.artist && <div style={{ color: '#94a3b8', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.artist}</div>}
+                      </div>
                     </div>
-                  )}
+                  ))}
+                </div>
+              )}
+            </div>
 
-                  {/* Metadata badges */}
-                  <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                    {node.genres && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(34, 197, 94, 0.2)",
-                          color: "#4ade80",
-                          border: "1px solid rgba(34, 197, 94, 0.3)",
-                        }}
-                      >
-                        {node.genres}
-                      </span>
-                    )}
-                    {node.bpm && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(245, 158, 11, 0.2)",
-                          color: "#fbbf24",
-                          border: "1px solid rgba(245, 158, 11, 0.3)",
-                        }}
-                      >
-                        {Math.round(node.bpm)} BPM
-                      </span>
-                    )}
-                    {node.danceability != null && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(168, 85, 247, 0.2)",
-                          color: "#c084fc",
-                          border: "1px solid rgba(168, 85, 247, 0.3)",
-                        }}
-                        title="Danceability"
-                      >
-                        💃 {Math.round(node.danceability * 100)}%
-                      </span>
-                    )}
-                    {node.energy != null && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(239, 68, 68, 0.2)",
-                          color: "#f87171",
-                          border: "1px solid rgba(239, 68, 68, 0.3)",
-                        }}
-                        title="Energy"
-                      >
-                        ⚡ {Math.round(node.energy * 100)}%
-                      </span>
-                    )}
-                    {node.acousticness != null && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(34, 211, 238, 0.2)",
-                          color: "#22d3ee",
-                          border: "1px solid rgba(34, 211, 238, 0.3)",
-                        }}
-                        title="Acousticness"
-                      >
-                        🎸 {Math.round(node.acousticness * 100)}%
-                      </span>
-                    )}
-                    {node.liveliness != null && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "1px 6px",
-                          fontSize: 10,
-                          borderRadius: 4,
-                          background: "rgba(251, 191, 36, 0.2)",
-                          color: "#fbbf24",
-                          border: "1px solid rgba(251, 191, 36, 0.3)",
-                        }}
-                        title="Liveliness"
-                      >
-                        🎤 {Math.round(node.liveliness * 100)}%
-                      </span>
-                    )}
+            <div style={{ flex: 1 }} />
+
+            {/* Settings button */}
+            <button
+              onClick={() => setCompactSettingsOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '8px 12px', background: '#1e293b', border: '1px solid #334155',
+                borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg>
+              Settings
+            </button>
+          </div>
+
+          {/* Settings panel overlay */}
+          {compactSettingsOpen && (
+            <>
+              <div onClick={() => setCompactSettingsOpen(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1050 }} />
+              <div style={{
+                position: 'absolute', top: 60, right: 12, width: 300, maxHeight: '80vh', overflowY: 'auto',
+                background: 'rgba(15, 23, 42, 0.97)', backdropFilter: 'blur(12px)',
+                border: '1px solid #334155', borderRadius: 12, padding: 16, color: '#f8fafc', zIndex: 1100
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 16 }}>Library Controls</h3>
+                  <button onClick={() => setCompactSettingsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 20 }}>✕</button>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }].map((opt) => (
+                      <button key={opt.value} onClick={() => setColorMode(opt.value)} style={{
+                        padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                        background: colorMode === opt.value ? 'rgba(124,58,237,0.35)' : 'rgba(148,163,184,0.1)',
+                        border: `1px solid ${colorMode === opt.value ? 'rgba(124,58,237,0.7)' : 'rgba(148,163,184,0.25)'}`,
+                        color: colorMode === opt.value ? '#c084fc' : '#94a3b8', cursor: 'pointer', fontWeight: colorMode === opt.value ? 600 : 400
+                      }}>{opt.label}</button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Preview indicator */}
-                {node.previewUrl && (
-                  <span style={{ color: "#64748b", fontSize: 14, flexShrink: 0 }}>▶</span>
-                )}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>BPM: {filters.minBpm} – {filters.maxBpm}</label>
+                  <DualRangeSlider minVal={filters.minBpm} maxVal={filters.maxBpm} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minBpm: min, maxBpm: max }))} trackGradient="linear-gradient(to right, #3b82f6, #ef4444)" />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Danceability: {Math.round(filters.minDanceability * 100)} – {Math.round(filters.maxDanceability * 100)}%</label>
+                  <NormalizedDualRangeSlider minVal={filters.minDanceability} maxVal={filters.maxDanceability} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minDanceability: min, maxDanceability: max }))} trackGradient="linear-gradient(to right, #8b5cf6, #ec4899)" />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Acousticness: {Math.round(filters.minAcousticness * 100)} – {Math.round(filters.maxAcousticness * 100)}%</label>
+                  <NormalizedDualRangeSlider minVal={filters.minAcousticness} maxVal={filters.maxAcousticness} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minAcousticness: min, maxAcousticness: max }))} trackGradient="linear-gradient(to right, #22d3ee, #f59e0b)" />
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Genre</label>
+                  <select value={filters.genre} onChange={(e) => setFilters({ ...filters, genre: e.target.value })} style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 8, borderRadius: 6 }}>
+                    <option value="All">All Genres</option>
+                    {uniqueGenres.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            </>
+          )}
+        </>
+      )}
 
-        {/* No results message */}
-        {showDropdown && searchQuery.trim() && searchResults.length === 0 && (
-          <div
-            style={{
-              marginTop: 8,
-              padding: "14px 16px",
-              background: "rgba(15, 23, 42, 0.92)",
-              border: "1px solid #334155",
-              borderRadius: "12px",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-              color: "#94a3b8",
-              fontSize: 13,
-              textAlign: "center",
-            }}
-          >
-            No results found for "{searchQuery}"
-          </div>
-        )}
-      </div>
-
-      {/* Navigable Targets Aside */}
-      {nowPlayingNode && (navigableTargets.length > 0 || navigationHistory.length > 0) && (
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* FULL TOP BAR — wide desktop (> 1180px) */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {!isCompactDesktop && !useCompactMobileLayout && (
         <div
-          key={nowPlayingNode.id}
           style={{
-          position: 'absolute', bottom: 24, right: 24, width: 280,
-          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          border: '1px solid #334155', borderRadius: 8, padding: 12,
-          color: '#f8fafc', zIndex: 1000, maxHeight: '50vh', overflowY: 'auto'
-        }}>
-          <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Similar Tracks</span>
-            <span>Use 1-9 or ↑</span>
+            position: 'absolute', top: 20, left: 20, right: 20, zIndex: 1000,
+            display: 'flex', flexDirection: 'row', alignItems: 'flex-start',
+            justifyContent: 'space-between', gap: 12, pointerEvents: 'none'
+          }}
+        >
+          {/* ── Search column ── */}
+          <div ref={searchInputRef} style={{ flex: 1, minWidth: 0, maxWidth: 560, pointerEvents: 'auto' }}>
+            <input
+              type="text" placeholder="Search tracks, artists, genres…" value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); setHighlightedIndex(-1); }}
+              onFocus={() => setShowDropdown(true)} onKeyDown={handleSearchKeyDown}
+              style={{
+                width: '100%', padding: '12px 16px', fontSize: 14, color: '#e2e8f0',
+                background: 'rgba(15, 23, 42, 0.85)', border: '1px solid #334155',
+                borderRadius: 12, outline: 'none', backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)', boxSizing: 'border-box'
+              }}
+            />
+            {showDropdown && searchResults.length > 0 && (
+              <div style={{
+                marginTop: 8, background: 'rgba(15, 23, 42, 0.92)', border: '1px solid #334155',
+                borderRadius: 12, backdropFilter: 'blur(12px)', overflow: 'hidden', maxHeight: 480, overflowY: 'auto'
+              }}>
+                {searchResults.map((node, index) => (
+                  <div key={node.id}
+                    onMouseEnter={() => { handleSearchResultHover(node); setHighlightedIndex(index); }}
+                    onMouseLeave={handleSearchResultLeave} onClick={() => handleSearchResultClick(node)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                      cursor: 'pointer', borderBottom: '1px solid rgba(51,65,85,0.5)',
+                      background: index === highlightedIndex ? 'rgba(124,58,237,0.15)' : 'transparent'
+                    }}
+                  >
+                    {node.artwork_url ? (
+                      <img src={node.artwork_url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+                        onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex'; }} />
+                    ) : null}
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 6,
+                      background: node.kind === 'track' ? '#a855f7' : node.kind === 'artist' ? '#0ea5e9' : node.kind === 'album' ? '#f59e0b' : '#22c55e',
+                      display: node.artwork_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0
+                    }}>{node.kind === 'track' ? '♪' : node.kind === 'artist' ? '♫' : node.kind === 'album' ? '◉' : '◆'}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#fff', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label || node.title || node.name || node.id}</div>
+                      {node.artist && <div style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.artist}</div>}
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                        {node.genres && <span style={{ display: 'inline-block', padding: '1px 6px', fontSize: 10, borderRadius: 4, background: 'rgba(34,197,94,0.2)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>{node.genres}</span>}
+                        {node.bpm && <span style={{ display: 'inline-block', padding: '1px 6px', fontSize: 10, borderRadius: 4, background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>{Math.round(node.bpm)} BPM</span>}
+                        {node.danceability != null && <span style={{ display: 'inline-block', padding: '1px 6px', fontSize: 10, borderRadius: 4, background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }} title="Danceability">💃 {Math.round(node.danceability * 100)}%</span>}
+                        {node.energy != null && <span style={{ display: 'inline-block', padding: '1px 6px', fontSize: 10, borderRadius: 4, background: 'rgba(239,68,68,0.2)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }} title="Energy">⚡ {Math.round(node.energy * 100)}%</span>}
+                        {node.acousticness != null && <span style={{ display: 'inline-block', padding: '1px 6px', fontSize: 10, borderRadius: 4, background: 'rgba(34,211,238,0.2)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)' }} title="Acousticness">🎸 {Math.round(node.acousticness * 100)}%</span>}
+                      </div>
+                    </div>
+                    {node.previewUrl && <span style={{ color: '#64748b', fontSize: 14, flexShrink: 0 }}>▶</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showDropdown && searchQuery.trim() && searchResults.length === 0 && (
+              <div style={{ marginTop: 8, padding: '14px 16px', background: 'rgba(15,23,42,0.92)', border: '1px solid #334155', borderRadius: 12, color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No results found for "{searchQuery}"</div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {navigableTargets.length > 0 ? navigableTargets.slice(0, 9).map((target, index) => (
-              <div
-                key={target.node.id}
-                onClick={() => {
-                  setNavigationHistory(prev => [...prev, nowPlayingNode.id]); // PUSH ID
-                  triggerPlayAndFly(target.node);
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '8px', padding: '6px',
-                  background: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px',
-                  cursor: 'pointer', border: '1px solid transparent',
-                  transition: 'border-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
-                onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
-              >
-                {/* Number Key Badge */}
-                <div style={{
-                  width: 20, height: 20, background: '#334155', borderRadius: '4px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '11px', fontWeight: 'bold', flexShrink: 0
-                }}>
-                  {index + 1}
-                </div>
-
-                {/* Target Info */}
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {target.node.label || target.node.title || target.node.name}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {target.node.artist || ''}
-                  </div>
-                </div>
-
-                {/* Match Score - Similarity Bar */}
-                <div style={{ width: 60, flexShrink: 0 }}>
-                  <div className="ghost-similarity-bar">
-                    <div
-                      className="ghost-bar sim"
-                      style={{ width: `${Math.max(8, Math.round(target.weight * 100))}%` }}
-                    />
-                  </div>
-                </div>
+          {/* ── Controls column ── */}
+          <div style={{ width: controlsMinimized ? 'fit-content' : 280, maxWidth: '100%', pointerEvents: 'auto' }}>
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+              padding: controlsMinimized ? '8px 12px' : 16, borderRadius: 8,
+              color: '#f8fafc', border: '1px solid #334155', transition: 'all 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: controlsMinimized ? 0 : 16 }}>
+                {!controlsMinimized && <h3 style={{ margin: 0, fontSize: 16 }}>Library Controls</h3>}
+                <button onClick={() => setControlsMinimized(!controlsMinimized)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4, fontSize: 18 }} title={controlsMinimized ? 'Expand' : 'Minimize'}>
+                  {controlsMinimized ? '⚙' : '–'}
+                </button>
               </div>
-            )) : (
-              <div style={{ fontSize: '12px', color: '#64748b', padding: '8px 0', textAlign: 'center' }}>
-                No new similar tracks — use ⬇ to go back
-              </div>
-            )}
-
-            {/* Back to Previous Row */}
-            {navigationHistory.length > 0 && (
-              <div
-                onClick={() => {
-                  const newHistory = [...navigationHistory];
-                  const prevNodeId = newHistory.pop(); // POP ID
-                  setNavigationHistory(newHistory);
-
-                  const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
-                  if (prevNode) triggerPlayAndFly(prevNode);
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '12px', padding: '8px',
-                  background: 'rgba(245, 158, 11, 0.15)',
-                  borderRadius: '4px', cursor: 'pointer', border: '1px dashed #f59e0b',
-                  marginTop: '8px', transition: 'background 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.25)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.15)'}
-              >
-                {/* Arrow Down Badge */}
-                <div style={{
-                  width: 20, height: 20, background: '#f59e0b', borderRadius: '4px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '14px', fontWeight: 'bold', color: '#020617', flexShrink: 0
-                }}>
-                  ⬇
+              {controlsMinimized ? (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                  <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, background: colorMode !== 'default' ? 'rgba(124,58,237,0.3)' : 'rgba(148,163,184,0.1)', border: `1px solid ${colorMode !== 'default' ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.2)'}`, color: colorMode !== 'default' ? '#c084fc' : '#94a3b8', cursor: 'pointer' }} onClick={() => setControlsMinimized(false)}>
+                    {colorMode === 'default' ? 'Default' : colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
+                  </span>
+                  {filters.genre !== 'All' && (
+                    <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80', cursor: 'pointer' }} onClick={() => setControlsMinimized(false)}>{filters.genre}</span>
+                  )}
                 </div>
-
-                {/* Previous Track Info */}
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '11px', color: '#fcd34d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Back to Previous
+              ) : (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }].map((opt) => (
+                        <button key={opt.value} onClick={() => setColorMode(opt.value)} style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, background: colorMode === opt.value ? 'rgba(124,58,237,0.35)' : 'rgba(148,163,184,0.1)', border: `1px solid ${colorMode === opt.value ? 'rgba(124,58,237,0.7)' : 'rgba(148,163,184,0.25)'}`, color: colorMode === opt.value ? '#c084fc' : '#94a3b8', cursor: 'pointer', fontWeight: colorMode === opt.value ? 600 : 400 }}>{opt.label}</button>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {(() => {
-                      const lastId = navigationHistory[navigationHistory.length - 1];
-                      const node = graphData.nodes.find(n => n.id === lastId);
-                      return node ? (node.label || node.title) : 'Previous Track';
-                    })()}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>BPM: {filters.minBpm} – {filters.maxBpm}</label>
+                    <DualRangeSlider minVal={filters.minBpm} maxVal={filters.maxBpm} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minBpm: min, maxBpm: max }))} trackGradient="linear-gradient(to right, #3b82f6, #ef4444)" />
                   </div>
-                </div>
-              </div>
-            )}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Danceability: {Math.round(filters.minDanceability * 100)} – {Math.round(filters.maxDanceability * 100)}%</label>
+                    <NormalizedDualRangeSlider minVal={filters.minDanceability} maxVal={filters.maxDanceability} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minDanceability: min, maxDanceability: max }))} trackGradient="linear-gradient(to right, #8b5cf6, #ec4899)" />
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Acousticness: {Math.round(filters.minAcousticness * 100)} – {Math.round(filters.maxAcousticness * 100)}%</label>
+                    <NormalizedDualRangeSlider minVal={filters.minAcousticness} maxVal={filters.maxAcousticness} onChange={({ min, max }) => setFilters(prev => ({ ...prev, minAcousticness: min, maxAcousticness: max }))} trackGradient="linear-gradient(to right, #22d3ee, #f59e0b)" />
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Genre</label>
+                    <select value={filters.genre} onChange={(e) => setFilters({ ...filters, genre: e.target.value })} style={{ width: '100%', background: '#1e293b', color: 'white', border: '1px solid #475569', padding: 6, borderRadius: 4 }}>
+                      <option value="All">All Genres</option>
+                      {uniqueGenres.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Now Playing Aside */}
-      {nowPlayingNode && (
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* DESKTOP NOW PLAYING ASIDE — non-small screens only */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {!useCompactMobileLayout && nowPlayingNode && (
         <div
           className="entity-card"
           style={{
             position: 'absolute',
-            bottom: 24,
-            left: 24,
-            width: 'fit-content',
-            maxWidth: 300,
-            height: 'fit-content',
-            minHeight: 0,
+            bottom: isCompactDesktop ? 0 : 12,
+            left: isCompactDesktop ? 0 : 12,
+            right: isCompactDesktop ? 260 : 'auto',
+            width: isCompactDesktop ? 'calc(100% - 260px)' : 'fit-content',
+            maxWidth: isCompactDesktop ? 'none' : 360,
             padding: 0,
-            background: 'rgba(15, 23, 42, 0.9)',
+            background: isCompactDesktop ? 'rgba(15, 23, 42, 0.95)' : 'rgba(15, 23, 42, 0.9)',
             backdropFilter: 'blur(8px)',
             WebkitBackdropFilter: 'blur(8px)',
-            border: '1px solid #334155',
+            border: isCompactDesktop ? 'none' : '1px solid #334155',
+            borderRadius: isCompactDesktop ? 0 : 8,
             zIndex: 1000,
             cursor: 'pointer',
             '--accent': '#7c3aed'
           }}
           onClick={() => {
-            // 1. Highlight it
             setSelectedNode(nowPlayingNode);
             setSearchQuery('');
-
-            // 2. Fly the camera back to the playing node
             const distance = 100;
             const distRatio = 1 + distance / Math.hypot(nowPlayingNode.x, nowPlayingNode.y, nowPlayingNode.z);
             graphRef.current.cameraPosition(
@@ -1352,42 +1353,351 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             );
           }}
         >
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '10px 12px' }}>
+          <div style={{ display: 'flex', gap: isCompactDesktop ? 6 : 12, alignItems: 'center', padding: isCompactDesktop ? '4px 10px' : '10px 12px' }}>
             {nowPlayingNode.artwork_url ? (
-              <img
-                src={nowPlayingNode.artwork_url}
-                style={{ width: '48px', height: '48px', borderRadius: '6px', flexShrink: 0 }}
-                alt="artwork"
-              />
+              <img src={nowPlayingNode.artwork_url} style={{ width: isCompactDesktop ? 32 : 48, height: isCompactDesktop ? 32 : 48, borderRadius: 4, flexShrink: 0 }} alt="artwork" />
             ) : (
-              <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: '#334155', flexShrink: 0 }} />
+              <div style={{ width: isCompactDesktop ? 32 : 48, height: isCompactDesktop ? 32 : 48, borderRadius: 4, background: '#334155', flexShrink: 0 }} />
             )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 'bold', color: 'white', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ flex: 1, minWidth: 0, lineHeight: 1 }}>
+              <div style={{ fontWeight: 'bold', color: 'white', fontSize: isCompactDesktop ? 11 : 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {nowPlayingNode.label || nowPlayingNode.title || nowPlayingNode.name || 'Unknown Track'}
               </div>
-              <div style={{ color: '#94a3b8', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ color: '#94a3b8', fontSize: isCompactDesktop ? 9 : 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {nowPlayingNode.artist || 'Unknown Artist'}
               </div>
+              {!isCompactDesktop && (
+                <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+                  {nowPlayingNode.genres && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>{nowPlayingNode.genres}</span>}
+                  {nowPlayingNode.bpm && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>{Math.round(nowPlayingNode.bpm)} BPM</span>}
+                  {nowPlayingNode.year && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>{nowPlayingNode.year}</span>}
+                  {nowPlayingNode.danceability != null && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>💃{Math.round(nowPlayingNode.danceability * 100)}%</span>}
+                  {nowPlayingNode.energy != null && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>⚡{Math.round(nowPlayingNode.energy * 100)}%</span>}
+                  {nowPlayingNode.acousticness != null && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>🎸{Math.round(nowPlayingNode.acousticness * 100)}%</span>}
+                </div>
+              )}
             </div>
-            <span className="soundwave-cluster" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <span className="soundwave-cluster" aria-hidden="true" style={{ flexShrink: 0, scale: isCompactDesktop ? 0.6 : 1 }}>
               <span></span><span></span><span></span>
             </span>
-          </div>
-          <div style={{ padding: '0 12px 10px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {nowPlayingNode.genres && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }}>{nowPlayingNode.genres}</span>}
-            {nowPlayingNode.bpm && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }}>{Math.round(nowPlayingNode.bpm)} BPM</span>}
-            {nowPlayingNode.year && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }}>{nowPlayingNode.year}</span>}
-            {nowPlayingNode.danceability != null && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }} title="Danceability">💃 {Math.round(nowPlayingNode.danceability * 100)}%</span>}
-            {nowPlayingNode.energy != null && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }} title="Energy">⚡ {Math.round(nowPlayingNode.energy * 100)}%</span>}
-            {nowPlayingNode.acousticness != null && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }} title="Acousticness">🎸 {Math.round(nowPlayingNode.acousticness * 100)}%</span>}
-            {nowPlayingNode.liveliness != null && <span className="chip" style={{ background: '#1e293b', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', color: '#cbd5e1' }} title="Liveliness">🎤 {Math.round(nowPlayingNode.liveliness * 100)}%</span>}
           </div>
         </div>
       )}
 
-      {/* Back to Studio link */}
-      <Link to="/" className="back-to-studio-link">← Back to Studio</Link>
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* DESKTOP NAVIGABLE TARGETS ASIDE — non-small screens only */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {!useCompactMobileLayout && nowPlayingNode && (navigableTargets.length > 0 || navigationHistory.length > 0) && (
+        <div
+          key={nowPlayingNode.id}
+          style={{
+            position: 'absolute',
+            bottom: isCompactDesktop ? 0 : 12,
+            right: isCompactDesktop ? 0 : 12,
+            width: isCompactDesktop ? 260 : 280,
+            background: isCompactDesktop ? 'rgba(15, 23, 42, 0.95)' : 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            border: isCompactDesktop ? 'none' : '1px solid #334155',
+            borderRadius: isCompactDesktop ? 0 : 8,
+            padding: isCompactDesktop ? '4px 8px' : 12,
+            color: '#f8fafc',
+            zIndex: 1000,
+            maxHeight: isCompactDesktop ? '45vh' : '50vh',
+            overflowY: 'auto'
+          }}
+        >
+          {isCompactDesktop ? (
+            /* Compact: just prev/next buttons, same height as now-playing bar */
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {navigationHistory.length > 0 && (
+                <button
+                  onClick={() => {
+                    const newHistory = [...navigationHistory];
+                    const prevNodeId = newHistory.pop();
+                    setNavigationHistory(newHistory);
+                    const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+                    if (prevNode) triggerPlayAndFly(prevNode);
+                  }}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    padding: '4px 8px', background: 'rgba(245, 158, 11, 0.2)',
+                    border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 4,
+                    color: '#fbbf24', cursor: 'pointer', fontSize: 11, fontWeight: 600
+                  }}
+                >
+                  ← Back
+                </button>
+              )}
+              {navigableTargets.length > 0 && (
+                <button
+                  onClick={() => {
+                    setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
+                    triggerPlayAndFly(navigableTargets[0].node);
+                  }}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    padding: '4px 8px', background: 'rgba(16, 185, 129, 0.2)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: 4,
+                    color: '#34d399', cursor: 'pointer', fontSize: 11, fontWeight: 600
+                  }}
+                >
+                  Next →
+                </button>
+              )}
+            </div>
+          ) : (
+            /* Wide: full track list */
+            <>
+              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Similar Tracks</span>
+                <span>Use 1-9 or ↑</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {navigableTargets.length > 0 ? navigableTargets.slice(0, 9).map((target, index) => (
+                  <div
+                    key={target.node.id}
+                    onClick={() => {
+                      setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
+                      triggerPlayAndFly(target.node);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px',
+                      background: 'rgba(30, 41, 59, 0.5)', borderRadius: 4,
+                      cursor: 'pointer', border: '1px solid transparent',
+                      transition: 'border-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'transparent'}
+                  >
+                    <div style={{
+                      width: 20, height: 20, background: '#334155', borderRadius: 4,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 'bold', flexShrink: 0
+                    }}>
+                      {index + 1}
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {target.node.label || target.node.title || target.node.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {target.node.artist || ''}
+                      </div>
+                    </div>
+
+                    <div style={{ width: 60, flexShrink: 0 }}>
+                      <div className="ghost-similarity-bar">
+                        <div className="ghost-bar sim" style={{ width: `${Math.max(8, Math.round(target.weight * 100))}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )) : (
+                  <div style={{ fontSize: 12, color: '#64748b', padding: '4px 0', textAlign: 'center' }}>
+                    No new tracks — use ⬇ to go back
+                  </div>
+                )}
+
+                {navigationHistory.length > 0 && (
+                  <div
+                    onClick={() => {
+                      const newHistory = [...navigationHistory];
+                      const prevNodeId = newHistory.pop();
+                      setNavigationHistory(newHistory);
+                      const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+                      if (prevNode) triggerPlayAndFly(prevNode);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '8px',
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      borderRadius: 4, cursor: 'pointer', border: '1px dashed #f59e0b',
+                      marginTop: 8, transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(245, 158, 11, 0.15)'}
+                  >
+                    <div style={{
+                      width: 20, height: 20, background: '#f59e0b', borderRadius: 4,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14, fontWeight: 'bold', color: '#020617', flexShrink: 0
+                    }}>
+                      ⬇
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 11, color: '#fcd34d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Back to Previous
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 'bold', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {(() => {
+                          const lastId = navigationHistory[navigationHistory.length - 1];
+                          const node = graphData.nodes.find(n => n.id === lastId);
+                          return node ? (node.label || node.title) : 'Previous Track';
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* MOBILE BOTTOM SHEET — small screens only */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {useCompactMobileLayout && nowPlayingNode && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 2000,
+            background: 'rgba(15, 23, 42, 0.97)', backdropFilter: 'blur(12px)',
+            border: '1px solid #334155', borderTop: 'none',
+            borderRadius: '16px 16px 0 0',
+            transition: 'height 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+            height: bottomSheetExpanded ? '52vh' : '80px',
+            overflow: 'hidden', display: 'flex', flexDirection: 'column'
+          }}
+        >
+          {/* Entire collapsed bar is tappable to expand/collapse */}
+          <div
+            onClick={() => setBottomSheetExpanded(prev => !prev)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '10px 16px 14px',
+              flexShrink: 0,
+              minHeight: 80,
+              cursor: 'pointer'
+            }}
+          >
+            {/* Drag Handle Pill */}
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: '#475569', marginBottom: 0, flexShrink: 0 }} />
+
+            {nowPlayingNode.artwork_url ? (
+              <img src={nowPlayingNode.artwork_url} alt="artwork"
+                style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0 }} />
+            ) : (
+              <div style={{ width: 44, height: 44, borderRadius: 6, background: '#334155', flexShrink: 0 }} />
+            )}
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: '#fff', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {nowPlayingNode.label || nowPlayingNode.title || 'Unknown Track'}
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {nowPlayingNode.artist || 'Unknown Artist'}
+              </div>
+            </div>
+
+            {/* Live indicator + Expand chevron */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span className="soundwave-cluster" aria-hidden="true" style={{ scale: 0.8 }}>
+                <span></span><span></span><span></span>
+              </span>
+              <span style={{ color: '#94a3b8', fontSize: 18 }}>
+                {bottomSheetExpanded ? '⌄' : '⌃'}
+              </span>
+            </div>
+          </div>
+
+          {/* Expanded Content - Similar Tracks */}
+          {bottomSheetExpanded && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
+              {/* Metadata Chips */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 0' }}>
+                {nowPlayingNode.genres && <span className="chip">{nowPlayingNode.genres}</span>}
+                {nowPlayingNode.bpm && <span className="chip">{Math.round(nowPlayingNode.bpm)} BPM</span>}
+                {nowPlayingNode.year && <span className="chip">{nowPlayingNode.year}</span>}
+                {nowPlayingNode.danceability != null && <span className="chip" title="Danceability">💃 {Math.round(nowPlayingNode.danceability * 100)}%</span>}
+                {nowPlayingNode.energy != null && <span className="chip" title="Energy">⚡ {Math.round(nowPlayingNode.energy * 100)}%</span>}
+              </div>
+
+              {/* Section Header */}
+              <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                Similar Tracks — tap to play
+              </div>
+
+              {/* Similar Tracks List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {navigableTargets.slice(0, 9).map((target, index) => (
+                  <div
+                    key={target.node.id}
+                    onClick={() => {
+                      setNavigationHistory(prev => [...prev, nowPlayingNode.id]);
+                      triggerPlayAndFly(target.node);
+                      setBottomSheetExpanded(false);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                      background: 'rgba(30, 41, 59, 0.7)', borderRadius: 8, cursor: 'pointer',
+                      border: '1px solid transparent', minHeight: 44
+                    }}
+                  >
+                    {/* Number Badge */}
+                    <div style={{
+                      width: 22, height: 22, background: '#334155', borderRadius: 4,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#94a3b8', flexShrink: 0
+                    }}>
+                      {index + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {target.node.label || target.node.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {target.node.artist}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: '#10b981', flexShrink: 0 }}>
+                      {Math.round(target.weight * 100)}%
+                    </div>
+                  </div>
+                ))}
+
+                {/* Back to Previous Row */}
+                {navigationHistory.length > 0 && (
+                  <div
+                    onClick={() => {
+                      const newHistory = [...navigationHistory];
+                      const prevNodeId = newHistory.pop();
+                      setNavigationHistory(newHistory);
+                      const prevNode = graphData.nodes.find(n => n.id === prevNodeId);
+                      if (prevNode) { triggerPlayAndFly(prevNode); setBottomSheetExpanded(false); }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                      background: 'rgba(245, 158, 11, 0.15)', borderRadius: 8, cursor: 'pointer',
+                      border: '1px dashed #f59e0b', marginTop: 4, minHeight: 44
+                    }}
+                  >
+                    <div style={{ width: 22, height: 22, background: '#f59e0b', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#020617', flexShrink: 0 }}>⬇</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: '#fcd34d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Back to Previous</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const lastId = navigationHistory[navigationHistory.length - 1];
+                          const node = graphData.nodes.find(n => n.id === lastId);
+                          return node ? (node.label || node.title) : 'Previous Track';
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Back to Studio link — non-small screens only */}
+      {!useCompactMobileLayout && <Link to="/" className="back-to-studio-link">← Back to Studio</Link>}
 
       <ForceGraph3D
         ref={graphRef}
@@ -1510,14 +1820,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         d3VelocityDecay={0.4}
       />
 
-      {/* Rich HTML hover overlay for hovered nodes */}
-      {hoveredNode && (
+      {/* Rich HTML hover overlay for hovered nodes — non-touch devices only, clamped to viewport */}
+      {!useTouchUI && hoveredNode && (
         <div
           className="entity-card hover-preview"
           style={{
             position: "absolute",
-            top: mousePos.y + 15,
-            left: mousePos.x + 15,
+            top: tooltipPos.top,
+            left: tooltipPos.left,
             pointerEvents: "none",
             zIndex: 1000,
             width: "280px",
