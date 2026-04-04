@@ -400,10 +400,20 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+      const newIndex = Math.min(highlightedIndex + 1, searchResults.length - 1);
+      setHighlightedIndex(newIndex);
+      // Start preview like hover does
+      if (newIndex >= 0) {
+        handleSearchResultHover(searchResults[newIndex]);
+      }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHighlightedIndex(prev => Math.max(prev - 1, 0));
+      const newIndex = Math.max(highlightedIndex - 1, 0);
+      setHighlightedIndex(newIndex);
+      // Start preview like hover does
+      if (newIndex >= 0) {
+        handleSearchResultHover(searchResults[newIndex]);
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (highlightedIndex >= 0 && highlightedIndex < searchResults.length) {
@@ -415,7 +425,7 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       setShowDropdown(false);
       setHighlightedIndex(-1);
     }
-  }, [showDropdown, searchResults, highlightedIndex, handleSearchResultClick]);
+  }, [showDropdown, searchResults, highlightedIndex, handleSearchResultClick, handleSearchResultHover]);
 
   const handleSearchResultLeave = useCallback(() => {
     if (audioRef.current) {
