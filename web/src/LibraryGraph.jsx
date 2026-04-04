@@ -347,35 +347,6 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     }
   }, []);
 
-  // Handle search result keyboard navigation
-  const handleSearchKeyDown = useCallback((e) => {
-    if (!showDropdown || searchResults.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlightedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedIndex(prev => Math.max(prev - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (highlightedIndex >= 0 && highlightedIndex < searchResults.length) {
-        const node = searchResults[highlightedIndex];
-        handleSearchResultClick(node);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setShowDropdown(false);
-      setHighlightedIndex(-1);
-    }
-  }, [showDropdown, searchResults, highlightedIndex, handleSearchResultClick]);
-
-  const handleSearchResultLeave = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-  }, []);
-
   // Fly camera to a node (reusable helper)
   const flyToNode = useCallback((node, distance = 100, duration = 1500) => {
     if (!graphRef.current || !node) return;
@@ -422,6 +393,35 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     onNodeSelect?.(node);
     flyToNode(node);
   }, [onNodeSelect, flyToNode]);
+
+  // Handle search result keyboard navigation
+  const handleSearchKeyDown = useCallback((e) => {
+    if (!showDropdown || searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < searchResults.length) {
+        const node = searchResults[highlightedIndex];
+        handleSearchResultClick(node);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowDropdown(false);
+      setHighlightedIndex(-1);
+    }
+  }, [showDropdown, searchResults, highlightedIndex, handleSearchResultClick]);
+
+  const handleSearchResultLeave = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
