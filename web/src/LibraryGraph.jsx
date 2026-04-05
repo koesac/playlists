@@ -2,9 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Link } from "react-router-dom";
 import ForceGraph3D from "react-force-graph-3d";
+import { useStudio } from './StudioContext';
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass";
+
+// Nodes within this multiple of the minimum camera distance are considered
+// "foreground". Increase to grab more depth; decrease for tighter slicing.
+const Z_DEPTH_TOLERANCE = 1.35;
 
 // Playlist bridge constants
 const PLAYLIST_BRIDGE_KEY = "ai-playlist-bridge-v1";
@@ -411,6 +416,12 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   });
   const [contextMenu, setContextMenu] = useState(null); // { node, x, y } | null
 
+  // ═══ Bulk harvester / marquee selection state ═══
+  const { queueForImport } = useStudio();
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 }
+  const [bulkSelection, setBulkSelection] = useState(new Set());
+
   // Subscribe to localStorage changes for playlist bridge (cross-tab sync)
   useEffect(() => {
     const handleStorage = (e) => {
@@ -604,6 +615,25 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
     const interval = setInterval(checkIdle, 500);
     return () => clearInterval(interval);
   }, []);
+
+  // Track Shift key for marquee selection mode
+  useEffect(() => {
+    const onDown = (e) => { if (e.key === 'Shift') setIsShiftPressed(true);  };
+    const onUp   = (e) => { if (e.key === 'Shift') setIsShiftPressed(false); };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup',   onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup',   onUp);
+    };
+  }, []);
+
+  // Freeze camera rotation while the user is drawing a selection box
+  useEffect(() => {
+    if (!graphRef.current) return;
+    const controls = graphRef.current.controls();
+    if (controls) controls.enabled = !isShiftPressed;
+  }, [isShiftPressed]);
 
   // Initialize post-processing (Bloom) after ForceGraph3D mounts
   useEffect(() => {
@@ -1117,6 +1147,70 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       className="graph-view-container"
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      onPointerDown={(e) => {
+        if (!isShiftPressed) return;
+        e.stopPropagation();
+        e.preventDefault();
+        setDragBox({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+      }}
+      onPointerMove={(e) => {
+        if (!dragBox) return;
+        e.stopPropagation();
+        setDragBox(prev => ({ ...prev, x2: e.clientX, y2: e.clientY }));
+      }}
+      onPointerUp={(e) => {
+        if (!dragBox) return;
+        e.stopPropagation();
+
+        const minX = Math.min(dragBox.x1, dragBox.x2);
+        const maxX = Math.max(dragBox.x1, dragBox.x2);
+        const minY = Math.min(dragBox.y1, dragBox.y2);
+        const maxY = Math.max(dragBox.y1, dragBox.y2);
+
+        // Only process boxes with meaningful size (avoids accidental clicks)
+        if (maxX - minX > 8 && maxY - minY > 8 && graphRef.current) {
+          // Runtime guard for graph2ScreenCoords
+          if (typeof graphRef.current.graph2ScreenCoords !== 'function') {
+            console.warn('graph2ScreenCoords not available — update react-force-graph-3d');
+            setDragBox(null);
+            return;
+          }
+
+          const camera = graphRef.current.camera();
+          const boxedNodes = [];
+
+          graphData.nodes.forEach(node => {
+            if (node.kind !== 'track') return;
+            if (!passesFilters(node)) return;
+
+            const sc = graphRef.current.graph2ScreenCoords(node.x ?? 0, node.y ?? 0, node.z ?? 0);
+            if (sc.x >= minX && sc.x <= maxX && sc.y >= minY && sc.y <= maxY) {
+              const dist = Math.hypot(
+                (node.x ?? 0) - camera.position.x,
+                (node.y ?? 0) - camera.position.y,
+                (node.z ?? 0) - camera.position.z
+              );
+              boxedNodes.push({ node, dist });
+            }
+          });
+
+          if (boxedNodes.length > 0) {
+            // Z-depth slicing: keep only the foreground cluster
+            const minDist = Math.min(...boxedNodes.map(n => n.dist));
+            const maxAllowedDist = minDist * Z_DEPTH_TOLERANCE;
+
+            setBulkSelection(prev => {
+              const next = new Set(prev);
+              boxedNodes.forEach(({ node, dist }) => {
+                if (dist <= maxAllowedDist) next.add(node.id);
+              });
+              return next;
+            });
+          }
+        }
+
+        setDragBox(null);
+      }}
     >
       {/* Hidden audio element for preview playback */}
       <audio ref={audioRef} />
@@ -2301,9 +2395,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
         cooldownTicks={0}
         nodeResolution={8}
         nodeColor={(n) => {
-          // Always highlight the currently playing and selected nodes at top priority
-          if (nowPlayingNode?.id === n.id) return '#10b981'; // green — now playing
-          if (selectedNode?.id === n.id && colorMode !== 'playlist') return '#f59e0b'; // amber — selected
+          if (nowPlayingNode?.id === n.id) return '#10b981';  // green  — now playing
+          if (selectedNode?.id  === n.id) return '#f59e0b';  // amber  — selected
+          if (bulkSelection.has(n.id))    return '#ec4899';  // pink   — bulk selected
 
           if (colorMode === 'playlist') {
             const membership = playlistMembership.get(n.id);
@@ -2327,19 +2421,20 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           return defaultNodeColor(n);
         }}
         nodeVal={(n) => {
-          const baseSize = Math.max(2, Math.log10(n.listeners || 10));
-          if (nowPlayingNode && n.id === nowPlayingNode.id) return baseSize * 2.5; // Bulge while playing
-          if (selectedNode && n.id === selectedNode.id) return baseSize * 1.5;
+          const base = Math.max(2, Math.log10(n.listeners || 10));
+          if (nowPlayingNode?.id === n.id) return base * 2.5;
+          if (selectedNode?.id  === n.id) return base * 1.5;
+          if (bulkSelection.has(n.id))    return base * 1.4;
           // Playlist mode: in-playlist nodes slightly larger; non-playlist nodes slightly smaller
           if (colorMode === 'playlist') {
             const membership = playlistMembership.get(n.id);
-            if (!membership) return baseSize * 0.6;
+            if (!membership) return base * 0.6;
             if (activePlaylistIds.length === 0 || activePlaylistIds.includes(membership.playlistId)) {
-              return baseSize * 1.7;
+              return base * 1.7;
             }
-            return baseSize * 0.6;
+            return base * 0.6;
           }
-          return baseSize;
+          return base;
         }}
         nodeRelSize={1}
         backgroundColor="#020617"
@@ -2533,6 +2628,83 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Marquee selection box — visible while Shift-dragging */}
+      {dragBox && (
+        <div style={{
+          position:        'absolute',
+          zIndex:          2000,
+          pointerEvents:   'none',
+          left:            Math.min(dragBox.x1, dragBox.x2),
+          top:             Math.min(dragBox.y1, dragBox.y2),
+          width:           Math.abs(dragBox.x2 - dragBox.x1),
+          height:          Math.abs(dragBox.y2 - dragBox.y1),
+          backgroundColor: 'rgba(236, 72, 153, 0.12)',
+          border:          '1.5px solid #ec4899',
+          borderRadius:    4,
+        }} />
+      )}
+
+      {/* Floating action bar — appears when tracks are bulk-selected */}
+      {bulkSelection.size > 0 && (
+        <div style={{
+          position:       'absolute',
+          bottom:         24,
+          left:           '50%',
+          transform:      'translateX(-50%)',
+          zIndex:         1500,
+          background:     'rgba(15, 23, 42, 0.92)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border:         '1px solid #ec4899',
+          borderRadius:   32,
+          padding:        '8px 20px',
+          display:        'flex',
+          alignItems:     'center',
+          gap:            16,
+          boxShadow:      '0 4px 24px rgba(236,72,153,0.25)',
+        }}>
+          <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 14 }}>
+            {bulkSelection.size} track{bulkSelection.size !== 1 ? 's' : ''} selected
+          </span>
+
+          <button
+            onClick={() => {
+              const nodes = Array.from(bulkSelection)
+                .map(id => graphData.nodes.find(n => n.id === id))
+                .filter(Boolean);
+              queueForImport(nodes);
+              setBulkSelection(new Set());
+            }}
+            style={{
+              background:   '#ec4899',
+              color:        '#fff',
+              border:       'none',
+              padding:      '6px 18px',
+              borderRadius: 20,
+              cursor:       'pointer',
+              fontWeight:   700,
+              fontSize:     13,
+            }}
+          >
+            ➕ Send to Studio
+          </button>
+
+          <button
+            onClick={() => setBulkSelection(new Set())}
+            style={{
+              background:   'transparent',
+              color:        '#94a3b8',
+              border:       'none',
+              cursor:       'pointer',
+              fontSize:     13,
+              padding:      '4px 8px',
+            }}
+          >
+            Clear
+          </button>
         </div>
       )}
     </div>

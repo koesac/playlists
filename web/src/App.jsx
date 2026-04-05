@@ -17,6 +17,7 @@ import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import ThemeToggle from "./ThemeToggle";
 import LibraryGraph from "./LibraryGraph";
+import { useStudio } from './StudioContext';
 
 async function api(url, options = {}) {
   const opts = { ...options, headers: { ...(options.headers || {}) } };
@@ -768,6 +769,7 @@ const PLAYLIST_BRIDGE_KEY = "ai-playlist-bridge-v1";
 const PENDING_ADD_KEY = "ai-playlist-pending-add-v1";
 
 function FlowApp() {
+  const { importQueue, clearQueue } = useStudio();
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState({
     deezer: { artists: [], tracks: [] },
@@ -2340,6 +2342,86 @@ useEffect(() => {
   useEffect(() => {
     fetchDrafts();
   }, [fetchDrafts]);
+
+  // Process bulk harvester import queue from Library Graph
+  useEffect(() => {
+    if (!importQueue.length) return;
+
+    // ── 1. Compute canvas drop position ──────────────────────────────────────
+    const vp = getViewportRef.current?.() ?? { x: 0, y: 0, zoom: 1 };
+    // Convert screen centre to flow-space coordinates
+    const COLS      = 5;
+    const H_GAP     = 260;
+    const V_GAP     = 160;
+    const centerX   = (window.innerWidth  / 2 - vp.x) / vp.zoom;
+    const centerY   = (window.innerHeight / 2 - vp.y) / vp.zoom;
+
+    // ── 2. Build entity stubs from library nodes ──────────────────────────────
+    const newEntities = {};
+    importQueue.forEach(libNode => {
+      const entity = buildTrackEntityStub(
+        { title: libNode.title, artist: libNode.artist },
+        libNode.id,          // library node IDs match Studio IDs (track:artist-title)
+        libNode.previewUrl,  // camelCase — set by SQL alias in getLibraryGraphData
+        libNode.artworkurl   // lowercase — raw column from librarynodes table
+      );
+      newEntities[entity.id] = entity;
+    });
+
+    const newIds         = Object.keys(newEntities);
+    const nextEntityMap  = { ...entityMap, ...newEntities };
+    const nextPlaylistIds = [...new Set([...playlistIds, ...newIds])];
+
+    // ── 3. Update entity map and playlist ────────────────────────────────────
+    setEntityMap(nextEntityMap);
+    setPlaylist(prev => {
+      const existingIds = new Set(prev.map(p => p.id));
+      return [...prev, ...Object.values(newEntities).filter(e => !existingIds.has(e.id))];
+    });
+
+    // ── 4. Place nodes on the canvas via syncNodes ────────────────────────────
+    setNodes(current => {
+      const filtered    = current.filter(n => !String(n.id).startsWith('ghost'));
+      const existingIds = new Set(filtered.map(n => n.id));
+
+      const toAdd = newIds
+        .filter(id => !existingIds.has(id))
+        .map((id, i) => {
+          const absIdx = importQueue.findIndex(n => n.id === id);
+          const col    = absIdx % COLS;
+          const row    = Math.floor(absIdx / COLS);
+          return {
+            id,
+            type:     'entity',
+            position: {
+              x: centerX + (col - Math.floor(COLS / 2)) * H_GAP,
+              y: centerY + row * V_GAP - 80,
+            },
+            data: {},   // syncNodes will populate all data fields below
+          };
+        });
+
+      return syncNodes(
+        [...filtered, ...toAdd],
+        nextEntityMap,
+        nextPlaylistIds,
+        activePreviewId
+      );
+    });
+
+    // ── 5. Notify and clean up ────────────────────────────────────────────────
+    setMessage(`Added ${newIds.length} track${newIds.length !== 1 ? 's' : ''} from Library`);
+    clearQueue();
+  }, [
+    importQueue,
+    entityMap,
+    playlistIds,
+    activePreviewId,
+    buildTrackEntityStub,
+    syncNodes,
+    clearQueue,
+    setMessage,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
