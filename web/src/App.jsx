@@ -764,6 +764,8 @@ function TrashIcon() {
 }
 
 const STORAGE_KEY = "ai-playlist-studio-state-v1";
+const PLAYLIST_BRIDGE_KEY = "ai-playlist-bridge-v1";
+const PENDING_ADD_KEY = "ai-playlist-pending-add-v1";
 
 function FlowApp() {
   const [query, setQuery] = useState("");
@@ -1223,6 +1225,29 @@ const handleMiniPlayToggle = (event) => {
     }
   }, [entityMap, nodes, edges, playlist, selectedId, drawerOpen, detailOpen, activePreviewId, audioSrc, previewCache, currentDraftId, draftTitle]);
 
+  // Write playlist to bridge key for Library Graph cross-matching
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const bridgePayload = {
+        tracks: playlist.map((entity) => {
+          const artist = entity.raw?.artist ?? entity.subtitle?.split(" · ")[0] ?? "";
+          const title = entity.label ?? "";
+          return {
+            id: entity.id,
+            title,
+            artist,
+            normalizedKey: safeId(artist) + safeId(title),
+          };
+        }),
+        updatedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem(PLAYLIST_BRIDGE_KEY, JSON.stringify(bridgePayload));
+    } catch (e) {
+      // localStorage may be blocked in some iframe contexts; fail silently
+    }
+  }, [playlist]);
+
   // Auto-save draft on changes with debounce
   useEffect(() => {
     if (!hydrated.current || typeof window === "undefined") return;
@@ -1600,6 +1625,35 @@ useEffect(() => {
       }
     };
   }, [buildPreviewNowPlayingEntity]);
+
+  // Process pending "add to playlist" additions from Library Graph
+  // NOTE: Must be defined AFTER buildTrackEntityStub to avoid TDZ error
+  useEffect(() => {
+    const processPendingAdds = () => {
+      if (typeof window === "undefined") return;
+      try {
+        const raw = window.localStorage.getItem(PENDING_ADD_KEY);
+        if (!raw) return;
+        const pending = JSON.parse(raw);
+        if (!Array.isArray(pending) || pending.length === 0) return;
+        window.localStorage.removeItem(PENDING_ADD_KEY);
+        pending.forEach((stub) => {
+          const entity = buildTrackEntityStub(stub, trackNodeId(stub), null, stub.artworkUrl);
+          setPlaylist((current) => {
+            if (current.some((item) => item.id === entity.id)) return current;
+            return [...current, entity];
+          });
+        });
+      } catch (e) {}
+    };
+
+    // Process on mount (in case Studio was closed and reopened)
+    processPendingAdds();
+
+    // Process whenever the window regains focus (user comes back from Library Graph tab)
+    window.addEventListener("focus", processPendingAdds);
+    return () => window.removeEventListener("focus", processPendingAdds);
+  }, [buildTrackEntityStub]);
 
   const warmTrackPreview = useCallback(async (trackLike, preferredId = "", options = {}) => {
     const artist = trackLike?.artist || trackLike?.payload?.artist || "";

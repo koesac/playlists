@@ -361,7 +361,10 @@ function findLibraryNodeByNormalizedTitle(normalizedArtist, normalizedTitle) {
 
 function getLibraryGraphData() {
   const nodes = db.prepare(`
-    SELECT id, title, artist, kind, bpm, genre, genres, listeners, artwork_url, preview_url as previewUrl, year, danceability, energy, acousticness, liveliness
+    SELECT id, title, artist, kind, bpm, genre, genres, listeners,
+           artwork_url AS artworkUrl,
+           preview_url AS previewUrl,
+           year, danceability, energy, acousticness, liveliness
     FROM library_nodes
   `).all();
 
@@ -380,7 +383,7 @@ function getLibraryGraphData() {
       genre: n.genre,
       genres: n.genres,
       listeners: n.listeners,
-      artwork_url: n.artwork_url,
+      artworkUrl: n.artworkUrl,
       previewUrl: n.previewUrl,
       year: n.year,
       danceability: n.danceability,

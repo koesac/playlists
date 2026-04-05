@@ -7,6 +7,7 @@ RUN npm install --omit=dev
 
 COPY src ./src
 COPY backfillLibrary.js ./
+COPY backfill-artwork.js ./
 
 EXPOSE 3001
 

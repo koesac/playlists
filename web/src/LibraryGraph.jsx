@@ -6,6 +6,10 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass";
 
+// Playlist bridge constants
+const PLAYLIST_BRIDGE_KEY = "ai-playlist-bridge-v1";
+const PENDING_ADD_KEY = "ai-playlist-pending-add-v1";
+
 // Generates a distinct color for a string (Genre)
 function stringToColor(str) {
   if (!str) return '#475569';
@@ -362,6 +366,53 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   // Navigation state
   const [navigationHistory, setNavigationHistory] = useState([]);
 
+  // ═══ Playlist bridge state ═══
+  const [showPlaylistOnly, setShowPlaylistOnly] = useState(false);
+  const [playlistTracks, setPlaylistTracks] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(PLAYLIST_BRIDGE_KEY);
+      if (raw) return JSON.parse(raw).tracks ?? [];
+    } catch (e) {}
+    return [];
+  });
+  const [contextMenu, setContextMenu] = useState(null); // { node, x, y } | null
+
+  // Subscribe to localStorage changes for playlist bridge (cross-tab sync)
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key !== PLAYLIST_BRIDGE_KEY) return;
+      try {
+        const data = JSON.parse(e.newValue ?? '{}');
+        setPlaylistTracks(data.tracks ?? []);
+      } catch (e) {}
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Reset showPlaylistOnly when playlist becomes empty
+  useEffect(() => {
+    if (playlistTracks.length === 0) setShowPlaylistOnly(false);
+  }, [playlistTracks]);
+
+  // Build a Set of library node IDs that are currently in the Studio playlist
+  const playlistNodeIds = useMemo(() => {
+    if (!playlistTracks.length || !graphData.nodes.length) return new Set();
+    const normalize = (str) => String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Normalize the playlist keys too — Studio's safeId() keeps dashes but
+    // our nodeKey strips them, so we must strip dashes from playlistKeys as well
+    const playlistKeys = new Set(playlistTracks.map(t => normalize(t.normalizedKey)));
+    const playlistIds = new Set(playlistTracks.map(t => t.id));
+    const matched = new Set();
+    graphData.nodes.forEach(node => {
+      if (node.kind !== 'track') return;
+      if (playlistIds.has(node.id)) { matched.add(node.id); return; }
+      const nodeKey = normalize(node.artist ?? '') + normalize(node.title ?? '');
+      if (playlistKeys.has(nodeKey)) matched.add(node.id);
+    });
+    return matched;
+  }, [playlistTracks, graphData.nodes]);
+
   // Fuzzy match helper
   function fuzzyMatch(text, query) {
     if (!query) return true;
@@ -695,14 +746,22 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   // Filter check function
   const passesFilters = useCallback((node) => {
     if (!node) return false;
-    if (node.kind !== 'track') return true; // Always show artists/genres
+
+    if (node.kind !== 'track') {
+      // Artist / genre / album nodes: hide them when playlist-only is active
+      return !showPlaylistOnly;
+    }
+
+    // Playlist-only gate
+    if (showPlaylistOnly && !playlistNodeIds.has(node.id)) return false;
+
     if (filters.genre !== 'All' && node.genre !== filters.genre) return false;
     if (node.bpm && (node.bpm < filters.minBpm || node.bpm > filters.maxBpm)) return false;
     if (node.danceability != null && (node.danceability < filters.minDanceability || node.danceability > filters.maxDanceability)) return false;
     if (node.acousticness != null && (node.acousticness < filters.minAcousticness || node.acousticness > filters.maxAcousticness)) return false;
     if (node.year && (node.year < filters.minYear || node.year > filters.maxYear)) return false;
     return true;
-  }, [filters]);
+  }, [filters, showPlaylistOnly, playlistNodeIds]);
 
   // Get unique genres from graph data
   const uniqueGenres = useMemo(() => {
@@ -918,11 +977,30 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                       background: '#1e293b', borderRadius: 6, cursor: 'pointer'
                     }}
                   >
-                    {node.artwork_url ? (
-                      <img src={node.artwork_url} alt="" style={{ width: 36, height: 36, borderRadius: 4, flexShrink: 0 }} />
-                    ) : (
-                      <div style={{ width: 36, height: 36, borderRadius: 4, background: '#334155', flexShrink: 0 }} />
-                    )}
+                    <img
+                      src={node.artworkUrl || ''}
+                      alt=""
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 4,
+                        objectFit: 'cover',
+                        flexShrink: 0,
+                        display: node.artworkUrl ? 'block' : 'none'
+                      }}
+                      onError={e => {
+                        e.target.style.display = 'none';
+                        e.target.nextElementSibling.style.display = 'block';
+                      }}
+                    />
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 4,
+                      background: '#334155',
+                      flexShrink: 0,
+                      display: node.artworkUrl ? 'none' : 'block'
+                    }} />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {node.label || node.title}
@@ -939,11 +1017,53 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             {/* Divider */}
             <div style={{ height: 1, background: '#334155' }} />
 
+            {/* Playlist Section */}
+            {playlistTracks.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Playlist</span>
+                  <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>{playlistTracks.length} tracks</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setColorMode('playlist')}
+                    style={{
+                      padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                      background: colorMode === 'playlist' ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)',
+                      border: `1px solid ${colorMode === 'playlist' ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`,
+                      color: colorMode === 'playlist' ? '#fbbf24' : '#94a3b8',
+                      cursor: 'pointer', fontWeight: colorMode === 'playlist' ? 600 : 400,
+                    }}
+                  >
+                    Highlight
+                  </button>
+                  <button
+                    onClick={() => setShowPlaylistOnly(v => !v)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                      background: showPlaylistOnly ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)',
+                      border: `1px solid ${showPlaylistOnly ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`,
+                      color: showPlaylistOnly ? '#fbbf24' : '#94a3b8',
+                      cursor: 'pointer', fontWeight: showPlaylistOnly ? 600 : 400,
+                    }}
+                  >
+                    {showPlaylistOnly ? 'Playlist Only ✓' : 'Playlist Only'}
+                  </button>
+                </div>
+                {colorMode === 'playlist' && (
+                  <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+                    <span><span style={{ color: '#f59e0b' }}>■</span> In playlist</span>
+                    <span><span style={{ color: '#334155' }}>■</span> Not in playlist</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Color Mode Pills */}
             <div>
               <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Colorize By</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['default', 'genre', 'bpm', 'year'].map(opt => (
+                {['default', 'genre', 'bpm', 'year', 'playlist'].map(opt => (
                   <button
                     key={opt}
                     onClick={() => setColorMode(opt)}
@@ -1135,7 +1255,35 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                         background: index === highlightedIndex ? 'rgba(124,58,237,0.15)' : 'transparent'
                       }}
                     >
-                      <div style={{ width: 32, height: 32, borderRadius: 4, background: node.kind === 'track' ? '#a855f7' : node.kind === 'artist' ? '#0ea5e9' : '#f59e0b', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                      {node.artworkUrl ? (
+                        <img
+                          src={node.artworkUrl}
+                          alt=""
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 4,
+                            objectFit: 'cover',
+                            flexShrink: 0,
+                            display: 'block'
+                          }}
+                          onError={e => {
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 4,
+                        background: node.kind === 'track' ? '#a855f7' : node.kind === 'artist' ? '#0ea5e9' : '#f59e0b',
+                        flexShrink: 0,
+                        display: node.artworkUrl ? 'none' : 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 14
+                      }}>
                         {node.kind === 'track' ? '♪' : node.kind === 'artist' ? '♫' : '◉'}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -1191,11 +1339,35 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                   </button>
                 </div>
 
+                {/* Playlist Section */}
+                {playlistTracks.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Playlist</span>
+                      <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>{playlistTracks.length} tracks</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => setColorMode('playlist')} style={{
+                        padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                        background: colorMode === 'playlist' ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)',
+                        border: `1px solid ${colorMode === 'playlist' ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`,
+                        color: colorMode === 'playlist' ? '#fbbf24' : '#94a3b8', cursor: 'pointer', fontWeight: colorMode === 'playlist' ? 600 : 400
+                      }}>Highlight</button>
+                      <button onClick={() => setShowPlaylistOnly(v => !v)} style={{
+                        padding: '6px 14px', borderRadius: 999, fontSize: 12,
+                        background: showPlaylistOnly ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)',
+                        border: `1px solid ${showPlaylistOnly ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`,
+                        color: showPlaylistOnly ? '#fbbf24' : '#94a3b8', cursor: 'pointer', fontWeight: showPlaylistOnly ? 600 : 400
+                      }}>{showPlaylistOnly ? 'Playlist Only ✓' : 'Playlist Only'}</button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Color Mode */}
                 <div>
                   <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Colorize By</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }].map((opt) => (
+                    {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }, { value: 'playlist', label: 'Playlist' }].map((opt) => (
                       <button key={opt.value} onClick={() => setColorMode(opt.value)} style={{
                         padding: '6px 14px', borderRadius: 999, fontSize: 12,
                         background: colorMode === opt.value ? 'rgba(124,58,237,0.35)' : 'rgba(148,163,184,0.1)',
@@ -1277,14 +1449,14 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                       background: index === highlightedIndex ? 'rgba(124,58,237,0.15)' : 'transparent'
                     }}
                   >
-                    {node.artwork_url ? (
-                      <img src={node.artwork_url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+                    {node.artworkUrl ? (
+                      <img src={node.artworkUrl} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
                         onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex'; }} />
                     ) : null}
                     <div style={{
                       width: 40, height: 40, borderRadius: 6,
                       background: node.kind === 'track' ? '#a855f7' : node.kind === 'artist' ? '#0ea5e9' : node.kind === 'album' ? '#f59e0b' : '#22c55e',
-                      display: node.artwork_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0
+                      display: node.artworkUrl ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0
                     }}>{node.kind === 'track' ? '♪' : node.kind === 'artist' ? '♫' : node.kind === 'album' ? '◉' : '◆'}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, color: '#fff', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label || node.title || node.name || node.id}</div>
@@ -1323,18 +1495,34 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               {controlsMinimized ? (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                   <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, background: colorMode !== 'default' ? 'rgba(124,58,237,0.3)' : 'rgba(148,163,184,0.1)', border: `1px solid ${colorMode !== 'default' ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.2)'}`, color: colorMode !== 'default' ? '#c084fc' : '#94a3b8', cursor: 'pointer' }} onClick={() => setControlsMinimized(false)}>
-                    {colorMode === 'default' ? 'Default' : colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : 'Year'}
+                    {colorMode === 'default' ? 'Default' : colorMode === 'genre' ? 'Genre' : colorMode === 'bpm' ? 'BPM' : colorMode === 'playlist' ? 'Playlist' : 'Year'}
                   </span>
+                  {showPlaylistOnly && (
+                    <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.4)', color: '#fbbf24', cursor: 'pointer' }} onClick={() => setControlsMinimized(false)}>Playlist Only</span>
+                  )}
                   {filters.genre !== 'All' && (
                     <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80', cursor: 'pointer' }} onClick={() => setControlsMinimized(false)}>{filters.genre}</span>
                   )}
                 </div>
               ) : (
                 <>
+                  {/* Playlist Section */}
+                  {playlistTracks.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Playlist</span>
+                        <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>{playlistTracks.length} tracks</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => setColorMode('playlist')} style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, background: colorMode === 'playlist' ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)', border: `1px solid ${colorMode === 'playlist' ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`, color: colorMode === 'playlist' ? '#fbbf24' : '#94a3b8', cursor: 'pointer', fontWeight: colorMode === 'playlist' ? 600 : 400 }}>Highlight</button>
+                        <button onClick={() => setShowPlaylistOnly(v => !v)} style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, background: showPlaylistOnly ? 'rgba(245,158,11,0.25)' : 'rgba(148,163,184,0.1)', border: `1px solid ${showPlaylistOnly ? 'rgba(245,158,11,0.6)' : 'rgba(148,163,184,0.25)'}`, color: showPlaylistOnly ? '#fbbf24' : '#94a3b8', cursor: 'pointer', fontWeight: showPlaylistOnly ? 600 : 400 }}>{showPlaylistOnly ? 'Playlist Only ✓' : 'Playlist Only'}</button>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ marginBottom: 16 }}>
                     <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Colorize By</label>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }].map((opt) => (
+                      {[{ value: 'default', label: 'Default' }, { value: 'genre', label: 'Genre' }, { value: 'bpm', label: 'BPM' }, { value: 'year', label: 'Year' }, { value: 'playlist', label: 'Playlist' }].map((opt) => (
                         <button key={opt.value} onClick={() => setColorMode(opt.value)} style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, background: colorMode === opt.value ? 'rgba(124,58,237,0.35)' : 'rgba(148,163,184,0.1)', border: `1px solid ${colorMode === opt.value ? 'rgba(124,58,237,0.7)' : 'rgba(148,163,184,0.25)'}`, color: colorMode === opt.value ? '#c084fc' : '#94a3b8', cursor: 'pointer', fontWeight: colorMode === opt.value ? 600 : 400 }}>{opt.label}</button>
                       ))}
                     </div>
@@ -1402,11 +1590,30 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           }}
         >
           <div style={{ display: 'flex', gap: isCompactDesktop ? 6 : 12, alignItems: 'center', padding: isCompactDesktop ? '4px 10px' : '10px 12px' }}>
-            {nowPlayingNode.artwork_url ? (
-              <img src={nowPlayingNode.artwork_url} style={{ width: isCompactDesktop ? 32 : 48, height: isCompactDesktop ? 32 : 48, borderRadius: 4, flexShrink: 0 }} alt="artwork" />
-            ) : (
-              <div style={{ width: isCompactDesktop ? 32 : 48, height: isCompactDesktop ? 32 : 48, borderRadius: 4, background: '#334155', flexShrink: 0 }} />
-            )}
+            <img
+              src={nowPlayingNode.artworkUrl || ''}
+              alt=""
+              style={{
+                width: isCompactDesktop ? 32 : 48,
+                height: isCompactDesktop ? 32 : 48,
+                borderRadius: 4,
+                objectFit: 'cover',
+                flexShrink: 0,
+                display: nowPlayingNode.artworkUrl ? 'block' : 'none'
+              }}
+              onError={e => {
+                e.target.style.display = 'none';
+                e.target.nextElementSibling.style.display = 'block';
+              }}
+            />
+            <div style={{
+              width: isCompactDesktop ? 32 : 48,
+              height: isCompactDesktop ? 32 : 48,
+              borderRadius: 4,
+              background: '#334155',
+              flexShrink: 0,
+              display: nowPlayingNode.artworkUrl ? 'none' : 'block'
+            }} />
             <div style={{ flex: 1, minWidth: 0, lineHeight: 1 }}>
               <div style={{ fontWeight: 'bold', color: 'white', fontSize: isCompactDesktop ? 11 : 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {nowPlayingNode.label || nowPlayingNode.title || nowPlayingNode.name || 'Unknown Track'}
@@ -1414,6 +1621,16 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
               <div style={{ color: '#94a3b8', fontSize: isCompactDesktop ? 9 : 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {nowPlayingNode.artist || 'Unknown Artist'}
               </div>
+              {playlistNodeIds.has(nowPlayingNode.id) && (
+                <span style={{
+                  display: 'inline-block', padding: '2px 8px', borderRadius: 999,
+                  fontSize: 10, background: 'rgba(245,158,11,0.2)',
+                  border: '1px solid rgba(245,158,11,0.35)', color: '#fbbf24',
+                  marginTop: 4,
+                }}>
+                  In playlist
+                </span>
+              )}
               {!isCompactDesktop && (
                 <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
                   {nowPlayingNode.genres && <span className="chip" style={{ background: '#1e293b', padding: '1px 6px', borderRadius: 10, fontSize: 10, color: '#cbd5e1', whiteSpace: 'nowrap' }}>{nowPlayingNode.genres}</span>}
@@ -1684,12 +1901,30 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             {/* Drag Handle Pill */}
             <div style={{ width: 36, height: 4, borderRadius: 2, background: '#475569', marginBottom: 0, flexShrink: 0 }} />
 
-            {nowPlayingNode.artwork_url ? (
-              <img src={nowPlayingNode.artwork_url} alt="artwork"
-                style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0 }} />
-            ) : (
-              <div style={{ width: 44, height: 44, borderRadius: 6, background: '#334155', flexShrink: 0 }} />
-            )}
+            <img
+              src={nowPlayingNode.artworkUrl || ''}
+              alt=""
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 6,
+                objectFit: 'cover',
+                flexShrink: 0,
+                display: nowPlayingNode.artworkUrl ? 'block' : 'none'
+              }}
+              onError={e => {
+                e.target.style.display = 'none';
+                e.target.nextElementSibling.style.display = 'block';
+              }}
+            />
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 6,
+              background: '#334155',
+              flexShrink: 0,
+              display: nowPlayingNode.artworkUrl ? 'none' : 'block'
+            }} />
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, color: '#fff', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1815,7 +2050,13 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           if (nowPlayingNode && n.id === nowPlayingNode.id) return '#10b981'; // Neon Emerald
           // 2. Second Priority: Selected Node
           if (selectedNode && n.id === selectedNode.id) return '#f59e0b'; // Orange
-          // 3. Fallback to existing colorMode logic
+          // 3. Playlist colour mode
+          if (colorMode === 'playlist') {
+            return playlistNodeIds.has(n.id)
+              ? '#f59e0b'   // Amber – in playlist
+              : '#1e293b';  // Very dark slate – not in playlist
+          }
+          // 4. Fallback to existing colorMode logic
           if (!passesFilters(n)) return defaultNodeColor(n);
           if (colorMode === 'genre') return stringToColor(n.genre);
           if (colorMode === 'bpm') return bpmToColor(n.bpm);
@@ -1826,6 +2067,10 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           const baseSize = Math.max(2, Math.log10(n.listeners || 10));
           if (nowPlayingNode && n.id === nowPlayingNode.id) return baseSize * 2.5; // Bulge while playing
           if (selectedNode && n.id === selectedNode.id) return baseSize * 1.5;
+          // Playlist mode: in-playlist nodes slightly larger; non-playlist nodes slightly smaller
+          if (colorMode === 'playlist') {
+            return playlistNodeIds.has(n.id) ? baseSize * 1.7 : baseSize * 0.6;
+          }
           return baseSize;
         }}
         nodeRelSize={1}
@@ -1938,14 +2183,38 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
           }}
         >
           <div className="entity-body" style={{ padding: "12px", display: "flex", gap: "12px" }}>
-            {hoveredNode.artwork_url && (
-              <img
-                src={hoveredNode.artwork_url}
-                style={{ width: "48px", height: "48px", borderRadius: "4px", objectFit: "cover" }}
-                alt="artwork"
-                onError={(e) => { e.target.style.display = "none"; }}
-              />
-            )}
+            <img
+              src={hoveredNode.artworkUrl || ''}
+              alt=""
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "4px",
+                objectFit: "cover",
+                flexShrink: 0,
+                display: hoveredNode.artworkUrl ? 'block' : 'none'
+              }}
+              onError={e => {
+                e.target.style.display = 'none';
+                e.target.nextElementSibling.style.display = 'flex';
+              }}
+            />
+            <div style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "4px",
+              flexShrink: 0,
+              background: hoveredNode.kind === 'track'  ? '#a855f7'
+                        : hoveredNode.kind === 'artist' ? '#0ea5e9'
+                        : hoveredNode.kind === 'album'  ? '#f59e0b'
+                        : '#22c55e',
+              display: hoveredNode.artworkUrl ? 'none' : 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px'
+            }}>
+              {hoveredNode.kind === 'track' ? '🎵' : hoveredNode.kind === 'artist' ? '👤' : '🎵'}
+            </div>
             <div className="entity-copy">
               <div className="entity-title" style={{ fontWeight: "bold", color: "white" }}>
                 {hoveredNode.label || hoveredNode.title || hoveredNode.name || hoveredNode.id}
