@@ -419,6 +419,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   // ═══ Bulk harvester / marquee selection state ═══
   const { queueForImport } = useStudio();
   const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const isSelectActive = isShiftPressed || selectMode;
   const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 }
   const [bulkSelection, setBulkSelection] = useState(new Set());
 
@@ -632,8 +634,8 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
   useEffect(() => {
     if (!graphRef.current) return;
     const controls = graphRef.current.controls();
-    if (controls) controls.enabled = !isShiftPressed;
-  }, [isShiftPressed]);
+    if (controls) controls.enabled = !isSelectActive;
+  }, [isSelectActive]);
 
   // Initialize post-processing (Bloom) after ForceGraph3D mounts
   useEffect(() => {
@@ -1147,8 +1149,9 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
       className="graph-view-container"
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      style={{ cursor: isSelectActive ? 'crosshair' : 'default' }}
       onPointerDown={(e) => {
-        if (!isShiftPressed) return;
+        if (!isSelectActive) return;
         e.stopPropagation();
         e.preventDefault();
         setDragBox({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
@@ -1251,10 +1254,28 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             border: '1px solid #334155', zIndex: 2100, overflowY: 'auto',
             padding: '16px', display: 'flex', flexDirection: 'column', gap: 16
           }}>
-            {/* Close Button */}
+            {/* Close Button + Select Mode */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 16 }}>Library Controls</span>
-              <button onClick={() => setMobileMenuOpen(false)} style={{ color: '#94a3b8', fontSize: 22, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {/* Select Mode button — bulk selection */}
+                <button
+                  onClick={() => setSelectMode(prev => !prev)}
+                  style={{
+                    width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: selectMode ? 'rgba(236, 72, 153, 0.3)' : 'rgba(15, 23, 42, 0.9)',
+                    border: `1px solid ${selectMode ? '#ec4899' : '#334155'}`,
+                    borderRadius: 8, color: selectMode ? '#ec4899' : '#94a3b8', cursor: 'pointer', padding: 0
+                  }}
+                  aria-label="Bulk Select"
+                  title="Bulk Select (or hold Shift)"
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                  </svg>
+                </button>
+                <button onClick={() => setMobileMenuOpen(false)} style={{ color: '#94a3b8', fontSize: 22, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+              </div>
             </div>
 
             {/* Search Input */}
@@ -1624,6 +1645,24 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
                 <line x1="17" y1="16" x2="23" y2="16" />
               </svg>
             </button>
+
+            {/* Select Mode button — bulk selection */}
+            <button
+              onClick={() => setSelectMode(prev => !prev)}
+              style={{
+                width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: selectMode ? 'rgba(236, 72, 153, 0.3)' : 'rgba(15, 23, 42, 0.9)',
+                backdropFilter: 'blur(8px)',
+                border: `1px solid ${selectMode ? '#ec4899' : '#334155'}`,
+                borderRadius: 8, color: selectMode ? '#ec4899' : '#94a3b8', cursor: 'pointer', padding: 0
+              }}
+              aria-label="Bulk Select"
+              title="Bulk Select (or hold Shift)"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+            </button>
           </div>
 
           {/* Settings panel — slides out from left side */}
@@ -1835,9 +1874,27 @@ function LibraryGraph({ onNodeSelect, nodeLimit = 10000 }) {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: controlsMinimized ? 0 : 16 }}>
                 {!controlsMinimized && <h3 style={{ margin: 0, fontSize: 16 }}>Library Controls</h3>}
-                <button onClick={() => setControlsMinimized(!controlsMinimized)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4, fontSize: 18 }} title={controlsMinimized ? 'Expand' : 'Minimize'}>
-                  {controlsMinimized ? '⚙' : '–'}
-                </button>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  {/* Select Mode button — bulk selection */}
+                  <button
+                    onClick={() => setSelectMode(prev => !prev)}
+                    style={{
+                      width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: selectMode ? 'rgba(236, 72, 153, 0.3)' : 'transparent',
+                      border: `1px solid ${selectMode ? '#ec4899' : 'transparent'}`,
+                      borderRadius: 6, color: selectMode ? '#ec4899' : '#94a3b8', cursor: 'pointer', padding: 0
+                    }}
+                    aria-label="Bulk Select"
+                    title="Bulk Select (or hold Shift)"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                    </svg>
+                  </button>
+                  <button onClick={() => setControlsMinimized(!controlsMinimized)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4, fontSize: 18 }} title={controlsMinimized ? 'Expand' : 'Minimize'}>
+                    {controlsMinimized ? '⚙' : '–'}
+                  </button>
+                </div>
               </div>
               {controlsMinimized ? (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
