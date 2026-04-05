@@ -3,7 +3,7 @@ const cors = require("cors");
 const morgan = require("morgan");
 const crypto = require("crypto");
 
-const { listDrafts, getDraft, saveDraft, deleteDraft, upsertTrack, getTrack, listTracks, deleteTrack, getGraphData, getLibraryGraphData } = require("./db");
+const { listDrafts, getDraft, saveDraft, deleteDraft, upsertTrack, getTrack, listTracks, deleteTrack, getGraphData, getLibraryGraphData, getPlaylistsForGraph } = require("./db");
 const { syncPlaylistToLibrary } = require("./librarySync");
 const {
   searchMusicBrainzTracks,
@@ -183,6 +183,16 @@ app.get("/api/library/graph", (req, res) => {
   try {
     const graphData = getLibraryGraphData();
     res.json(graphData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/playlists — returns all Studio drafts with their playlist track lists
+app.get("/api/playlists", (req, res) => {
+  try {
+    const playlists = getPlaylistsForGraph();
+    res.json(playlists);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

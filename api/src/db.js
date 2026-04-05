@@ -400,6 +400,36 @@ function getLibraryGraphData() {
   };
 }
 
+/**
+ * Returns all saved Studio drafts that contain at least one playlist track,
+ * with each track normalised to { id, title, artist } for graph matching.
+ */
+function getPlaylistsForGraph() {
+  const drafts = db
+    .prepare('SELECT id, title, data, updated_at FROM drafts ORDER BY updated_at DESC')
+    .all();
+
+  return drafts
+    .map(draft => {
+      let tracks = [];
+      try {
+        const data = JSON.parse(draft.data);
+        const playlist = data.playlist || [];
+        tracks = playlist
+          .map(entity => ({
+            id: entity.id,
+            title: entity.label || '',
+            artist: entity.raw?.artist || entity.subtitle?.split('/')[0] || ''
+          }))
+          .filter(t => t.title.trim().length > 0);
+      } catch (_) {
+        // malformed draft — skip silently
+      }
+      return { id: draft.id, title: draft.title, updatedAt: draft.updated_at, tracks };
+    })
+    .filter(p => p.tracks.length > 0);
+}
+
 module.exports = {
   listDrafts,
   getDraft,
@@ -419,5 +449,6 @@ module.exports = {
   insertLibraryEdge,
   getExistingLibraryTrackIds,
   findLibraryNodeByNormalizedTitle,
-  getLibraryGraphData
+  getLibraryGraphData,
+  getPlaylistsForGraph
 };
