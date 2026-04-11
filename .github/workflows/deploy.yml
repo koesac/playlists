@@ -1,0 +1,59 @@
+name: Build & Deploy on Push
+
+on:
+  push:
+    branches:
+      - graph
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate .env exists
+        run: |
+          if [ ! -f .env ]; then
+            echo "ERROR: .env file missing on runner. Copy .env.example and populate it."
+            exit 1
+          fi
+
+      - name: Stop existing containers
+        run: docker compose down --remove-orphans
+
+      - name: Build and start containers
+        run: docker compose up -d --build
+
+      - name: Wait for services to stabilise
+        run: sleep 8
+
+      - name: Health check - containers running
+        run: |
+          docker compose ps
+          RUNNING=$(docker compose ps --status running --quiet | wc -l)
+          if [ "$RUNNING" -lt 3 ]; then
+            echo "ERROR: Expected 3 running containers, got $RUNNING"
+            docker compose logs --tail=50
+            exit 1
+          fi
+
+      - name: Health check - web UI responds
+        run: |
+          curl -f --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:8021/ -o /dev/null -s \
+            && echo "Web UI OK" \
+            || { echo "Web UI not responding"; docker compose logs web --tail=30; exit 1; }
+
+      - name: Health check - API responds
+        run: |
+          curl -f --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:3001/health -o /dev/null -s \
+            && echo "API OK" \
+            || echo "API /health not found - non-fatal, add a health endpoint to confirm"
+
+      - name: Prune unused Docker images
+        if: success()
+        run: docker image prune -f
